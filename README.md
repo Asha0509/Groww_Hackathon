@@ -67,17 +67,16 @@ The demo page has a **Demo scenario** toggle (`Normal` / `Split Day`) and an
 watch the digest go silent again.
 
 `setup.sh` and the `Makefile` predate this build and still describe a
-Vite/React frontend that isn't part of it — see `BUGS.md`.
+Vite/React frontend that isn't part of it — see `docs/BUGS.md`.
 
 ## Further reading
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — module map, data model, request
-  flow, and why a modular monolith on SQLite (conceptually — this build is
-  in-memory) beats microservices and a message broker at this scale.
-- [`RESULTS.md`](RESULTS.md) — the naive-vs-Since output table, annotated.
-- [`BUGS.md`](BUGS.md) — known limitations, and what was skipped as a time
-  cut vs. a deliberate design decision.
-- [`PITCH.md`](PITCH.md) — the 100-word version.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module map, data model,
+  request flow, and why a modular monolith on SQLite (conceptually — this
+  build is in-memory) beats microservices and a message broker at this scale.
+- [`docs/RESULTS.md`](docs/RESULTS.md) — the naive-vs-Since output table, annotated.
+- [`docs/BUGS.md`](docs/BUGS.md) — known limitations, and what was skipped as
+  a time cut vs. a deliberate design decision.
 
 ## Decisions & trade-offs
 

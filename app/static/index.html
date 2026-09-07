@@ -91,6 +91,9 @@ async function refresh() {
     fetch('/api/digest').then(r => r.json()),
   ]);
 
+  document.getElementById('btn-normal').classList.toggle('active', wl.scenario === 'normal');
+  document.getElementById('btn-split_day').classList.toggle('active', wl.scenario === 'split_day');
+
   const tbody = document.getElementById('watchlist');
   tbody.innerHTML = wl.watchlist.map(row => `
     <tr>
