@@ -27,6 +27,7 @@
   .card .pct.up { color: #146c2e; }
   .card .pct.down { color: #a11d1d; }
   .empty { color: #888; font-style: italic; padding: 0.5rem 0; }
+  .ca-note { display: block; font-size: 0.78rem; color: #6a5300; background: #fff8e1; border-radius: 4px; padding: 0.15rem 0.4rem; margin-top: 0.2rem; }
   #seenBtn { margin-top: 0.5rem; }
 </style>
 </head>
@@ -78,7 +79,7 @@ async function refresh() {
   const tbody = document.getElementById('watchlist');
   tbody.innerHTML = wl.watchlist.map(row => `
     <tr>
-      <td>${row.symbol}</td>
+      <td>${row.symbol}${row.ca_note ? `<span class="ca-note">${row.ca_note} (₹${row.ca_pre_price.toFixed(2)} → ₹${row.ltp.toFixed(2)})</span>` : ''}</td>
       <td>${row.name}</td>
       <td>₹${row.ltp.toFixed(2)}</td>
       <td><span class="badge ${row.session_state}">${row.session_state}</span></td>

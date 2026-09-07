@@ -20,19 +20,34 @@ DEMO_NOW_EPOCH = DEMO_NOW.timestamp()
 _states: dict[str, InstrumentState] = {}
 _watermarks = WatermarkStore()
 _scenario = "normal"
+_ca_notes: dict[str, dict] = {}
+
+_CA_LABEL = {"SPLIT": "split", "BONUS": "bonus", "DIVIDEND": "dividend", "RIGHTS": "rights issue"}
+
+
+def _ca_note_text(action) -> str:
+    ratio = f"{int(action.ratio_from)}:{int(action.ratio_to)}"
+    label = _CA_LABEL.get(action.kind, action.kind.lower())
+    return f"{ratio} {label}, ex-date today — adjusted, no meaningful change"
 
 
 def _load_scenario(name: str) -> None:
-    global _states, _watermarks, _scenario
+    global _states, _watermarks, _scenario, _ca_notes
     if name not in SCENARIOS:
         raise HTTPException(404, f"unknown scenario: {name}")
 
     ticks, actions = SCENARIOS[name](DEMO_NOW_EPOCH)
     states = {inst.isin: InstrumentState(isin=inst.isin) for inst in INSTRUMENTS}
     watermarks = WatermarkStore()
+    ca_notes: dict[str, dict] = {}
 
     for t in ticks:
         st = states[t.isin]
+        for a in actions:
+            if a.isin == t.isin and a.ex_seq == t.seq:
+                # pre-tick ltp is the last raw price before the ratio changed —
+                # the reference a user needs to see the split isn't a crash.
+                ca_notes[t.isin] = {"text": _ca_note_text(a), "pre_price": st.ltp_raw}
         apply_tick(st, t)
         for a in actions:
             if a.isin == t.isin and a.ex_seq == t.seq:
@@ -41,7 +56,7 @@ def _load_scenario(name: str) -> None:
             # baseline: "whenever this user last actually looked" — here, session start.
             watermarks.ack(USER, t.isin, seq=1, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
 
-    _states, _watermarks, _scenario = states, watermarks, name
+    _states, _watermarks, _scenario, _ca_notes = states, watermarks, name, ca_notes
 
 
 @app.on_event("startup")
@@ -66,6 +81,7 @@ def watchlist():
     for inst in INSTRUMENTS:
         st = _states[inst.isin]
         state = instrument_session_state(DEMO_NOW, DEMO_NOW_EPOCH, inst, st)
+        note = _ca_notes.get(inst.isin)
         out.append(
             {
                 "isin": inst.isin,
@@ -73,6 +89,8 @@ def watchlist():
                 "name": inst.name,
                 "ltp": st.ltp_raw,
                 "session_state": state.value,
+                "ca_note": note["text"] if note else None,
+                "ca_pre_price": note["pre_price"] if note else None,
             }
         )
     return {"scenario": _scenario, "watchlist": out}
