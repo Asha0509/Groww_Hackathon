@@ -29,29 +29,44 @@
   .empty { color: #888; font-style: italic; padding: 0.5rem 0; }
   .ca-note { display: block; font-size: 0.78rem; color: #6a5300; background: #fff8e1; border-radius: 4px; padding: 0.15rem 0.4rem; margin-top: 0.2rem; }
   #seenBtn { margin-top: 0.5rem; }
+  .section-note { color: #666; font-size: 0.85rem; margin: -0.3rem 0 0.7rem; }
+  .toolbar-label { font-size: 0.85rem; color: #555; margin-right: 0.3rem; }
+  .legend { margin-top: 0.8rem; font-size: 0.82rem; color: #444; }
+  .legend dt { font-weight: 600; display: inline; }
+  .legend dd { display: inline; margin: 0 0 0 0.3rem; color: #666; }
+  .legend div { margin-bottom: 0.3rem; }
 </style>
 </head>
 <body>
   <h1>Since</h1>
-  <p class="tagline">What changed since you last looked. Silence is the default.</p>
+  <p class="tagline">A watchlist is a diff, not a dashboard. This shows what changed since you last looked — and nothing else.</p>
 
   <div class="toolbar">
+    <span class="toolbar-label">Demo scenario:</span>
     <button id="btn-normal" onclick="setScenario('normal')">Normal</button>
     <button id="btn-split_day" onclick="setScenario('split_day')">Split Day</button>
   </div>
 
   <section>
     <h2>Digest</h2>
+    <p class="section-note">At most 5 cards. Everything else is deliberately silent.</p>
     <div id="digest"></div>
     <button id="seenBtn" onclick="markSeen()">I looked — reset baseline</button>
   </section>
 
   <section>
     <h2>Watchlist</h2>
+    <p class="section-note">The full list, quiet. Prices are corporate-action adjusted; session state is per-instrument.</p>
     <table>
-      <thead><tr><th>Symbol</th><th>Name</th><th>LTP</th><th>Session</th></tr></thead>
+      <thead><tr><th>Symbol</th><th>Name</th><th>Last price</th><th>As of</th><th>Session</th></tr></thead>
       <tbody id="watchlist"></tbody>
     </table>
+    <dl class="legend">
+      <div><dt>LIVE</dt><dd>ticks flowing</dd></div>
+      <div><dt>CLOSED</dt><dd>market shut — price is correct, not stale</dd></div>
+      <div><dt>HALTED</dt><dd>circuit hit — frozen is the signal</dd></div>
+      <div><dt>DEGRADED</dt><dd>market open, ticks expected, none arriving — our fault</dd></div>
+    </dl>
   </section>
 
 <script>
@@ -82,6 +97,7 @@ async function refresh() {
       <td>${row.symbol}${row.ca_note ? `<span class="ca-note">${row.ca_note} (₹${row.ca_pre_price.toFixed(2)} → ₹${row.ltp.toFixed(2)})</span>` : ''}</td>
       <td>${row.name}</td>
       <td>₹${row.ltp.toFixed(2)}</td>
+      <td>${row.age_seconds}s ago</td>
       <td><span class="badge ${row.session_state}">${row.session_state}</span></td>
     </tr>
   `).join('');

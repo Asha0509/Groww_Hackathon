@@ -88,6 +88,7 @@ def watchlist():
                 "symbol": inst.symbol,
                 "name": inst.name,
                 "ltp": st.ltp_raw,
+                "age_seconds": round(DEMO_NOW_EPOCH - st.last_exchange_ts),
                 "session_state": state.value,
                 "ca_note": note["text"] if note else None,
                 "ca_pre_price": note["pre_price"] if note else None,
