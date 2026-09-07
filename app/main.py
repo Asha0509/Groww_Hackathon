@@ -1,11 +1,102 @@
-from fastapi import FastAPI
+import datetime as dt
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+
+from app.corpactions import apply_corporate_action
+from app.digest import WatermarkStore, build_digest
+from app.feed import INSTRUMENTS, SCENARIOS
+from app.ingest import apply_tick
+from app.models import InstrumentState
+from app.session import instrument_session_state
 
 app = FastAPI(title="Since")
+
+USER = "demo"
+DEMO_NOW = dt.datetime(2026, 9, 7, 11, 0, 0)
+DEMO_NOW_EPOCH = DEMO_NOW.timestamp()
+
+_states: dict[str, InstrumentState] = {}
+_watermarks = WatermarkStore()
+_scenario = "normal"
+
+
+def _load_scenario(name: str) -> None:
+    global _states, _watermarks, _scenario
+    if name not in SCENARIOS:
+        raise HTTPException(404, f"unknown scenario: {name}")
+
+    ticks, actions = SCENARIOS[name](DEMO_NOW_EPOCH)
+    states = {inst.isin: InstrumentState(isin=inst.isin) for inst in INSTRUMENTS}
+    watermarks = WatermarkStore()
+
+    for t in ticks:
+        st = states[t.isin]
+        apply_tick(st, t)
+        for a in actions:
+            if a.isin == t.isin and a.ex_seq == t.seq:
+                apply_corporate_action(st, a)
+        if t.seq == 1:
+            # baseline: "whenever this user last actually looked" — here, session start.
+            watermarks.ack(USER, t.isin, seq=1, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
+
+    _states, _watermarks, _scenario = states, watermarks, name
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    _load_scenario("normal")
+
 
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "service": "since"}
 
-@app.get("/")
+
+@app.post("/api/scenario/{name}")
+def set_scenario(name: str):
+    _load_scenario(name)
+    return {"scenario": name, "instruments": len(INSTRUMENTS)}
+
+
+@app.get("/api/watchlist")
+def watchlist():
+    out = []
+    for inst in INSTRUMENTS:
+        st = _states[inst.isin]
+        state = instrument_session_state(DEMO_NOW, DEMO_NOW_EPOCH, inst, st)
+        out.append(
+            {
+                "isin": inst.isin,
+                "symbol": inst.symbol,
+                "name": inst.name,
+                "ltp": st.ltp_raw,
+                "session_state": state.value,
+            }
+        )
+    return {"scenario": _scenario, "watchlist": out}
+
+
+@app.get("/api/digest")
+def digest():
+    cards = build_digest(USER, INSTRUMENTS, _states, _watermarks)
+    return {"scenario": _scenario, "cards": cards}
+
+
+@app.post("/api/watermark/ack")
+def ack(isin: str | None = None):
+    # INVARIANT I2: "I looked" advances the watermark by seq, never by client clock.
+    targets = [isin] if isin else [i.isin for i in INSTRUMENTS]
+    for iso in targets:
+        st = _states[iso]
+        _watermarks.ack(USER, iso, seq=st.last_seq, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
+    return {"ok": True}
+
+
+_INDEX_HTML = (Path(__file__).parent / "static" / "index.html").read_text()
+
+
+@app.get("/", response_class=HTMLResponse)
 def root():
-    return {"service": "since", "status": "scaffold"}
+    return _INDEX_HTML

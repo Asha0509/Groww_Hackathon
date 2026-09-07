@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Since</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.1rem; }
+  .tagline { color: #666; margin-top: 0; font-size: 0.9rem; }
+  .toolbar { display: flex; gap: 0.5rem; margin: 1rem 0 1.5rem; }
+  button { font: inherit; padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid #ccc; background: #fafafa; cursor: pointer; }
+  button.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  button:hover { border-color: #888; }
+  section { margin-bottom: 2rem; }
+  h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.04em; color: #444; border-bottom: 1px solid #eee; padding-bottom: 0.4rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  td, th { text-align: left; padding: 0.45rem 0.3rem; border-bottom: 1px solid #f0f0f0; }
+  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .LIVE { background: #d6f5db; color: #146c2e; }
+  .PRE_OPEN { background: #fff2c9; color: #8a6400; }
+  .CLOSED { background: #e6e6e6; color: #555; }
+  .HALTED { background: #ffe1c2; color: #9a4d00; }
+  .DEGRADED { background: #fbd6d6; color: #a11d1d; }
+  .card { border: 1px solid #eee; border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+  .card .pct.up { color: #146c2e; }
+  .card .pct.down { color: #a11d1d; }
+  .empty { color: #888; font-style: italic; padding: 0.5rem 0; }
+  #seenBtn { margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+  <h1>Since</h1>
+  <p class="tagline">What changed since you last looked. Silence is the default.</p>
+
+  <div class="toolbar">
+    <button id="btn-normal" onclick="setScenario('normal')">Normal</button>
+    <button id="btn-split_day" onclick="setScenario('split_day')">Split Day</button>
+  </div>
+
+  <section>
+    <h2>Digest</h2>
+    <div id="digest"></div>
+    <button id="seenBtn" onclick="markSeen()">I looked — reset baseline</button>
+  </section>
+
+  <section>
+    <h2>Watchlist</h2>
+    <table>
+      <thead><tr><th>Symbol</th><th>Name</th><th>LTP</th><th>Session</th></tr></thead>
+      <tbody id="watchlist"></tbody>
+    </table>
+  </section>
+
+<script>
+let scenario = 'normal';
+
+async function setScenario(name) {
+  await fetch(`/api/scenario/${name}`, { method: 'POST' });
+  scenario = name;
+  document.getElementById('btn-normal').classList.toggle('active', name === 'normal');
+  document.getElementById('btn-split_day').classList.toggle('active', name === 'split_day');
+  await refresh();
+}
+
+async function markSeen() {
+  await fetch('/api/watermark/ack', { method: 'POST' });
+  await refresh();
+}
+
+async function refresh() {
+  const [wl, dg] = await Promise.all([
+    fetch('/api/watchlist').then(r => r.json()),
+    fetch('/api/digest').then(r => r.json()),
+  ]);
+
+  const tbody = document.getElementById('watchlist');
+  tbody.innerHTML = wl.watchlist.map(row => `
+    <tr>
+      <td>${row.symbol}</td>
+      <td>${row.name}</td>
+      <td>₹${row.ltp.toFixed(2)}</td>
+      <td><span class="badge ${row.session_state}">${row.session_state}</span></td>
+    </tr>
+  `).join('');
+
+  const digestEl = document.getElementById('digest');
+  if (dg.cards.length === 0) {
+    digestEl.innerHTML = '<div class="empty">Nothing worth telling you. That is the point.</div>';
+  } else {
+    digestEl.innerHTML = dg.cards.map(c => `
+      <div class="card">
+        <span>${c.symbol} — ${c.kind}</span>
+        <span class="pct ${c.pct_change >= 0 ? 'up' : 'down'}">${c.pct_change >= 0 ? '+' : ''}${c.pct_change}%</span>
+      </div>
+    `).join('');
+  }
+}
+
+document.getElementById('btn-normal').classList.add('active');
+refresh();
+</script>
+</body>
+</html>
