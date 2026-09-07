@@ -1,0 +1,69 @@
+"""Watermark diff + digest budget (I2, I10). The watermark is the personal
+baseline: whenever this user last actually looked. See CLAUDE.md
+'Lie 1 — the baseline is not personal'.
+"""
+from dataclasses import dataclass
+from typing import Optional
+
+from app.corpactions import pct_change
+from app.models import Instrument, InstrumentState
+
+MOVE_THRESHOLD = 0.02  # 2% adjusted move is worth a card
+DEFAULT_BUDGET = 5
+
+
+@dataclass
+class Watermark:
+    user_id: str
+    isin: str
+    last_seen_seq: int
+    last_seen_price_raw: float
+    last_seen_cum_factor: float
+
+
+class WatermarkStore:
+    def __init__(self) -> None:
+        self._store: dict[tuple[str, str], Watermark] = {}
+
+    def get(self, user_id: str, isin: str) -> Optional[Watermark]:
+        return self._store.get((user_id, isin))
+
+    def ack(self, user_id: str, isin: str, seq: int, price_raw: float, cum_factor: float) -> Watermark:
+        current = self._store.get((user_id, isin))
+        # INVARIANT I2: watermark advances monotonically by seq, never rewinds.
+        if current is not None and seq <= current.last_seen_seq:
+            return current
+        wm = Watermark(user_id, isin, seq, price_raw, cum_factor)
+        self._store[(user_id, isin)] = wm
+        return wm
+
+
+def build_digest(
+    user_id: str,
+    instruments: list[Instrument],
+    states: dict[str, InstrumentState],
+    watermarks: WatermarkStore,
+    budget: int = DEFAULT_BUDGET,
+) -> list[dict]:
+    cards = []
+    for inst in instruments:
+        st = states[inst.isin]
+        wm = watermarks.get(user_id, inst.isin)
+        if wm is None:
+            # first time seeing this instrument: baseline is now, no card
+            watermarks.ack(user_id, inst.isin, st.last_seq, st.ltp_raw, st.cum_factor)
+            continue
+        change = pct_change(st.ltp_raw, wm.last_seen_price_raw, st.cum_factor, wm.last_seen_cum_factor)
+        if abs(change) >= MOVE_THRESHOLD:
+            cards.append(
+                {
+                    "isin": inst.isin,
+                    "symbol": inst.symbol,
+                    "kind": "MOVE",
+                    "pct_change": round(change * 100, 2),
+                    "score": abs(change),
+                }
+            )
+    cards.sort(key=lambda c: c["score"], reverse=True)
+    # INVARIANT I10: digest has a budget — silence is a feature.
+    return cards[:budget]
