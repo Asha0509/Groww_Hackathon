@@ -7,6 +7,9 @@ import threading
 
 from fastapi.testclient import TestClient
 
+import app.main as m
+from app import db
+from app.digest import Watermark
 from app.main import app
 
 client = TestClient(app)
@@ -88,5 +91,26 @@ def test_concurrent_scenario_reload_and_reads_stay_internally_consistent():
         t.join()
 
     assert errors == [], f"torn reads observed: {errors}"
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_persisted_watermark_survives_the_startup_replay(tmp_path):
+    """This is what _startup() does on a real process restart: load whatever
+    was durably saved, then replay a scenario. INVARIANT I2 (WatermarkStore's
+    monotonic guard) must mean the persisted seq blocks the replay's own
+    fresh seq=1 baseline-seed — otherwise 'persistence' would be pointless,
+    since every restart would immediately overwrite it back to seq=1.
+    """
+    path = str(tmp_path / "since.db")
+    conn = db.connect(path)
+    db.save_watermark(conn, Watermark("demo", "INE002A01018", last_seen_seq=5, last_seen_price_raw=2450.0, last_seen_cum_factor=1.0))
+    persisted = db.load_watermarks(conn)
+
+    # Exercises the exact seeding path _startup() uses, without touching the
+    # app's own global _db/DB_PATH (keeps this test isolated from the others).
+    m._load_scenario("normal", seed_watermarks=persisted)
+    wm = m._watermarks.get("demo", "INE002A01018")
+    assert wm.last_seen_seq == 5  # not rewound to the fresh seq=1 reseed
 
     client.post("/api/scenario/normal")  # leave state clean for other tests

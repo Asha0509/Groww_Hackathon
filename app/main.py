@@ -1,12 +1,14 @@
 import datetime as dt
+import os
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
+from app import db
 from app.corpactions import apply_corporate_action, detect_clean_ratio_gap
-from app.digest import WatermarkStore, build_digest
+from app.digest import Watermark, WatermarkStore, build_digest
 from app.feed import INSTRUMENTS, SCENARIOS
 from app.ingest import apply_tick
 from app.models import InstrumentState
@@ -17,6 +19,9 @@ app = FastAPI(title="Since")
 USER = "demo"
 DEMO_NOW = dt.datetime(2026, 9, 7, 11, 0, 0)
 DEMO_NOW_EPOCH = DEMO_NOW.timestamp()
+
+DB_PATH = os.environ.get("SINCE_DB_PATH", "data/since.db")
+_db = None  # set by _startup(); a sqlite3.Connection in WAL mode (app.db)
 
 _states: dict[str, InstrumentState] = {}
 _watermarks = WatermarkStore()
@@ -50,7 +55,14 @@ def _unverified_note_text(ratio: float) -> str:
     return f"unconfirmed — price shape looks like a {shape} corporate action but there's no confirmed record. Treat with caution."
 
 
-def _load_scenario(name: str) -> None:
+def _load_scenario(name: str, seed_watermarks: dict[tuple[str, str], Watermark] | None = None) -> None:
+    """seed_watermarks, when given, is only ever used once — from _startup(),
+    loaded from disk. A scenario switch via the API always starts from a
+    fresh session-start baseline (unchanged behavior), so the demo stays
+    seeded and deterministic: a persisted watermark could otherwise make the
+    very next `POST /api/scenario/...` during a live demo depend on
+    whatever state a previous run happened to leave behind.
+    """
     global _states, _watermarks, _scenario, _ca_notes, _unverified
     if name not in SCENARIOS:
         raise HTTPException(404, f"unknown scenario: {name}")
@@ -60,6 +72,11 @@ def _load_scenario(name: str) -> None:
     watermarks = WatermarkStore()
     ca_notes: dict[str, dict] = {}
     unverified: dict[str, str] = {}
+
+    for (uid, isin), wm in (seed_watermarks or {}).items():
+        # INVARIANT I2: this only ever advances the fresh store, never rewinds
+        # it — WatermarkStore.ack's own monotonic guard does the work.
+        watermarks.ack(uid, isin, wm.last_seen_seq, wm.last_seen_price_raw, wm.last_seen_cum_factor)
 
     for t in ticks:
         st = states[t.isin]
@@ -84,10 +101,26 @@ def _load_scenario(name: str) -> None:
     with _lock:
         _states, _watermarks, _scenario, _ca_notes, _unverified = states, watermarks, name, ca_notes, unverified
 
+    if _db is not None:
+        # Write-through: durably record the market data this scenario replay
+        # produced. Not read back at startup (see _startup) — each scenario
+        # load stays a fresh, deterministic replay by design; this only means
+        # the last known state is on disk, not that it's resumed from disk.
+        for st in states.values():
+            db.save_instrument_state(_db, st)
+
 
 @app.on_event("startup")
 def _startup() -> None:
-    _load_scenario("normal")
+    global _db
+    _db = db.connect(DB_PATH)
+    # INVARIANT: "how state persists across sessions/devices" — a user's own
+    # watermark (never the market data) is what should survive a restart.
+    # Loading it before the very first scenario replay means _load_scenario's
+    # own seq=1 baseline-seed can't rewind it (WatermarkStore.ack is
+    # monotonic), so a prior "I looked" durably outlives this process.
+    persisted = db.load_watermarks(_db)
+    _load_scenario("normal", seed_watermarks=persisted)
 
 
 @app.get("/healthz")
@@ -153,7 +186,9 @@ def ack(isin: str | None = None):
         targets = [isin] if isin else [i.isin for i in INSTRUMENTS]
         for iso in targets:
             st = _states[iso]
-            _watermarks.ack(USER, iso, seq=st.last_seq, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
+            wm = _watermarks.ack(USER, iso, seq=st.last_seq, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
+            if _db is not None:
+                db.save_watermark(_db, wm)
         return {"ok": True}
 
 

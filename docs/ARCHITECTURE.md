@@ -1,21 +1,23 @@
 # Architecture
 
-This describes the system as built for the reduced-scope (75-minute) cut. The
-target design in `CLAUDE.md` calls for SQLite-backed persistence and a fuller
-module split; this build keeps the same module boundaries but holds state
-in-memory, in a single process, reset per scenario load. See `BUGS.md` for
-what that costs.
+This describes the system as it actually runs today. It's a single-process
+FastAPI application: the same module boundaries below hold the full set of
+invariants, backed by real SQLite persistence for the two tables that
+actually need to survive a restart. See `BUGS.md` for exactly what's still
+in-memory-only and why.
 
 ## Module map
 
 ```
 app/
 ├─ models.py       Instrument, Tick, InstrumentState — shared plain dataclasses
-├─ feed/           seeded deterministic tick simulator (normal, split_day)
+├─ feed/           seeded deterministic tick simulator (normal, split_day, feed_death)
 ├─ ingest/         ordering guard — applies a tick only if seq > last_seq (I4)
-├─ corpactions/    cumulative adjustment factor, ISIN-keyed baseline math (I3)
+├─ corpactions/    cumulative adjustment factor, ISIN-keyed baseline math (I3);
+│                  clean-ratio-gap detection for unconfirmed corporate actions (I9)
 ├─ session/        five-state session model + per-instrument liveness (I5, I6)
 ├─ digest/         watermark store + diff + budget cap (I2, I10)
+├─ db.py           SQLite (WAL) persistence for instrument_state and watermarks
 ├─ naive/          deliberately naive baseline, kept wrong on purpose
 ├─ static/         single HTML page, plain CSS, no build step
 └─ main.py         FastAPI app: wires the above into scenario/watchlist/digest endpoints
@@ -27,31 +29,36 @@ directly instead of through HTTP.
 
 ## Data model
 
-The target schema (`CLAUDE.md §6`) is the one to build against if this
-persists past the demo:
+Two tables are real, live SQLite (`app/db.py`), in WAL mode:
 
 ```
-instruments        isin PK, name, liquidity_tier, listed_on
-symbol_aliases     symbol, isin FK, valid_from, valid_to        -- I1
-corporate_actions  id, isin FK, kind, ex_date, ratio_from, ratio_to,
-                   adjustment_factor, status(CONFIRMED|UNVERIFIED)
 instrument_state   isin PK, last_seq, last_exchange_ts, ltp_raw,
-                   cum_factor, session_state, expected_interval_ms
+                   cum_factor, volume_today, halted                -- I3, I4
 watermarks         user_id, isin, last_seen_seq, last_seen_price_raw,
-                   last_seen_cum_factor, last_seen_at              -- I2, I3
-signals            id, isin FK, seq, kind, score, payload_json
-suppressions       user_id, isin, signal_kind, cooldown_until      -- I10
+                   last_seen_cum_factor                             -- I2, I3
 ```
 
-What's actually running is the same shapes as plain dataclasses
-(`app/models.py`), keyed by ISIN in module-level dicts:
+The rest of the originally-envisioned schema — `instruments`, `symbol_aliases`
+(I1), `corporate_actions` with a `CONFIRMED`/`UNVERIFIED` status column,
+`signals`, `suppressions` (I10) — stays as in-memory shapes only; see
+`docs/BUGS.md` for exactly what each of those still doesn't do.
 
-- `_states: dict[isin, InstrumentState]` — one row per instrument, the
-  in-memory equivalent of `instrument_state`.
-- `WatermarkStore._store: dict[(user_id, isin), Watermark]` — the in-memory
-  equivalent of `watermarks`.
-- `_ca_notes: dict[isin, {text, pre_price}]` — a display-only cache for the
-  watchlist row annotation, not part of the invariant math.
+In the running process, every module keeps working against the same plain
+dataclasses it always has (`app/models.py`) — persistence is a side effect
+`app/main.py` triggers, not a change to the invariant math itself:
+
+- `_states: dict[isin, InstrumentState]` — one row per instrument in memory;
+  write-through persisted to `instrument_state` on every scenario load.
+- `WatermarkStore._store: dict[(user_id, isin), Watermark]` — one row per
+  user+instrument in memory; write-through persisted to `watermarks` on
+  every `POST /api/watermark/ack`, and reloaded once at process startup
+  before the first scenario replay, so a user's "I looked" position
+  survives a restart. See `docs/BUGS.md` for the precise boundary: a
+  scenario switch *within* a running process never consults the database —
+  only the one-time startup load does, to keep the demo deterministic.
+- `_ca_notes: dict[isin, {text, pre_price}]` and `_unverified: dict[isin,
+  str]` — display-only caches for the watchlist/digest, not persisted; they
+  regenerate identically from a scenario's deterministic replay every time.
 
 Corporate actions are not persisted as rows; the feed simulator emits them
 alongside the ticks for the scenario in progress (`app/feed.SCENARIOS`).
@@ -108,19 +115,20 @@ single demo user, would add network calls and partial-failure modes to a
 problem that doesn't have them yet. Complexity introduced before it's needed
 is not a sign of engineering maturity here — it's cosplay.
 
-## Why SQLite (and why this build skips even that)
+## Why SQLite
 
 SQLite in WAL mode is single-writer, which is exactly the write pattern here:
 one ingest path serializing ticks, many cheap reads. There is no
 horizontally-scaled write load to justify Postgres, and no operational
 surface (connection pools, a separate DB host) to justify running one. The
 interesting engineering problem is the schema and the invariants it encodes,
-not the storage engine.
+not the storage engine — and unlike an argument made only in prose, this one
+is backed by a running `app/db.py`: `instrument_state` and `watermarks` are
+real tables, and `tests/test_db.py` proves a value written before a
+connection closes is still there after a fresh one opens.
 
-This particular build goes a step further and skips persistence entirely —
-state lives in module-level dicts, reset on scenario load or process
-restart. That's a scope cut for the demo window, not a claim that SQLite is
-unnecessary: the schema above is what `instrument_state` and `watermarks`
-would look like on disk, and the invariant math (`corpactions.pct_change`,
-`WatermarkStore.ack`) doesn't change at all when a real `INSERT`/`UPDATE`
-replaces a dict write.
+The invariant math never had to change to make this true. `corpactions.pct_change`,
+`session.instrument_session_state`, and `WatermarkStore.ack`'s monotonic
+guard are exactly the same functions whether the caller is a dict or a row —
+persistence is a write-through at the edges (`app/main.py`), not a rewrite
+of the logic in between.
