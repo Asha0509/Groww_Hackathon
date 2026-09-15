@@ -290,6 +290,8 @@ def digest():
 def ack(isin: str | None = None):
     # INVARIANT I2: "I looked" advances the watermark by seq, never by client clock.
     with _lock:
+        if isin is not None and isin not in _states:
+            raise HTTPException(404, f"unknown instrument: {isin}")
         targets = [isin] if isin else [i.isin for i in INSTRUMENTS]
         for iso in targets:
             st = _states[iso]

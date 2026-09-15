@@ -20,6 +20,23 @@ def test_unknown_scenario_returns_404_not_a_crash():
     assert resp.status_code == 404
 
 
+def test_unknown_isin_on_ack_returns_404_not_a_crash():
+    """Found during the pre-panel input-validation pass: ack('isin=garbage')
+    used to raise an unhandled KeyError (a raw 500) instead of a clean
+    error, since nothing checked the isin was real before indexing _states
+    with it.
+    """
+    client.post("/api/scenario/normal")
+    resp = client.post("/api/watermark/ack", params={"isin": "NOT_A_REAL_ISIN"})
+    assert resp.status_code == 404
+
+
+def test_live_refresh_outside_live_mode_returns_409_not_a_crash():
+    client.post("/api/scenario/normal")
+    resp = client.post("/api/live/refresh")
+    assert resp.status_code == 409
+
+
 def test_normal_scenario_loads_and_digest_responds():
     resp = client.post("/api/scenario/normal")
     assert resp.status_code == 200
