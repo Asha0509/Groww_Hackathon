@@ -4,7 +4,9 @@ This describes the system as it actually runs today. It's a single-process
 FastAPI application: the same module boundaries below hold the full set of
 invariants, backed by real SQLite persistence for the two tables that
 actually need to survive a restart. See `BUGS.md` for exactly what's still
-in-memory-only and why.
+in-memory-only and why. For the exact fields, every distinct outcome, and
+the test that pins each one down, see `LLD.md` — this document is the
+shape of the system; that one is the detail.
 
 ## Module map
 
@@ -15,7 +17,7 @@ app/
 ├─ ingest/         ordering guard — applies a tick only if seq > last_seq (I4)
 ├─ corpactions/    cumulative adjustment factor, ISIN-keyed baseline math (I3);
 │                  clean-ratio-gap detection for unconfirmed corporate actions (I9)
-├─ session/        five-state session model + per-instrument liveness (I5, I6)
+├─ session/        four-state session model + per-instrument liveness (I5, I6)
 ├─ digest/         watermark store + diff + budget cap (I2, I10)
 ├─ db.py           SQLite (WAL) persistence for instrument_state and watermarks
 ├─ naive/          deliberately naive baseline, kept wrong on purpose

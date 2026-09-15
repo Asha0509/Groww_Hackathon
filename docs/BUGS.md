@@ -1,7 +1,9 @@
 # Known limitations & open issues
 
 Honest list. Nothing here is hidden from a live Q&A — if asked "what's not
-built," the answer is this file.
+built," the answer is this file. For what *is* built, in detail — exact
+outcomes, edge behavior, the test pinning each one — see `LLD.md`; several
+entries below point back to a specific non-goal named there.
 
 ## Closed this pass
 
@@ -16,6 +18,7 @@ built," the answer is this file.
 
 | What | Time cut or design decision? | Why |
 |---|---|---|
+| No tick sanity validation | Time cut | `app.ingest.apply_tick` only enforces ordering (`tick.seq > state.last_seq`) — it has no opinion on whether `price_raw` is a sane number. A malformed tick (negative, zero, or `NaN` price) that happens to arrive with a valid, increasing `seq` would be applied as-is: it wouldn't crash anything (`corpactions.pct_change`/`adjusted_baseline` guard division by zero, so a zero price doesn't raise), but a negative price would silently produce a nonsensical percentage in a MOVE card. Found while writing `docs/LLD.md`'s failure-behavior section, not previously disclosed. |
 | Volume cross-check for the unconfirmed-CA detector | Time cut | A real corporate action usually has a volume signature a data glitch doesn't. The ratio-shape check above doesn't look at volume at all, so a coincidental clean-ratio price glitch (rare, but possible with synthetic or noisy data) would still be flagged the same as a real unconfirmed split. Next layer, not built. |
 | I10 — cooldown / hysteresis on repeated signals | Time cut | The budget cap (≤5 cards) is built; the part that stops the same instrument re-triggering every poll once it crosses the threshold is not. Without it, a card can flicker in and out of the digest as a price oscillates around `MOVE_THRESHOLD`. |
 | VOLUME, LEVEL, EVENT scorers | Time cut | Only MOVE and the new UNVERIFIED_CORPORATE_ACTION card are implemented. A confirmed corporate action suppresses the *price* lie correctly but doesn't emit a dedicated EVENT card ("1:10 split, share count now 10x") — the watchlist row annotation is UI-layer sugar reading the `_ca_notes` cache, not a signal in the digest's own scoring path. |
