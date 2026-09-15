@@ -10,9 +10,9 @@ silent about everything else.
 
 ## Screenshots
 
-![Normal](docs/normal.png)
-![Split day](docs/split.png)
-![Naive vs Since](docs/compare.png)
+![Normal](docs/screenshots/normal.png)
+![Split day](docs/screenshots/split_day.png)
+![Naive vs Since](docs/screenshots/compare.png)
 
 ## What it does
 
@@ -73,19 +73,40 @@ that isn't part of it — see `docs/BUGS.md`.
 
 ## How the project is organized
 
-| Folder | What's in it |
-|---|---|
-| `app/` | The application itself. |
-| `app/feed/` | Where prices come from: a real one (live market data for eight stocks) and a rehearsal tool (a small set of scripted scenarios used to safely demonstrate rare events, like a stock split or a data outage, on command). |
-| `app/ingest/` | Makes sure price updates are applied in the right order, and a late or repeated update can never overwrite a newer one. |
-| `app/corpactions/` | Keeps a stock split or bonus issue from being mistaken for a real price move — and flags a suspicious, unexplained price jump instead of quietly trusting it. |
-| `app/session/` | Notices when a stock's data has gone quiet and says so plainly, instead of showing an old number as if it were current. |
-| `app/digest/` | Remembers what a person last saw and shows only what's genuinely different since then. |
-| `app/db.py` | Saves that memory to disk, so it survives a restart. |
-| `app/static/` | The single page shown in a browser — plain HTML, no framework. |
-| `docs/` | Design notes: [the big-picture design](docs/ARCHITECTURE.md), [the detailed design](docs/LLD.md), [known limitations](docs/BUGS.md), and [results](docs/RESULTS.md). |
-| `tests/` | Automated checks proving the important rules actually hold. |
-| `scripts/` | Small standalone programs used to measure and compare things. |
+```
+app/
+├── main.py            the web server — every route a browser or script talks to
+├── models.py           the plain shapes everything else is built from (a stock, a price update)
+├── db.py               saves a person's position to disk so it survives a restart
+├── feed/                where prices come from — a real source, and a rehearsal tool for rare events
+├── ingest/              applies a price update only if it's actually newer than the last one
+├── corpactions/         tells a real stock split apart from a price crash, and flags anything unexplained
+├── session/             says whether a stock's data is live, closed, halted, or gone quiet
+├── digest/              remembers what a person last saw and decides what's worth telling them now
+├── naive/               a deliberately simple, wrong version, kept only to show why it's wrong
+└── static/index.html    the single page a browser actually renders — plain HTML, no framework
+
+tests/                  one file per part above, proving its rules actually hold
+scripts/
+├── compare_naive.py     prints the naive version and this one side by side, on the same data
+└── benchmark_fanout.py  measures the cost of serving many people at once
+
+docs/
+├── ARCHITECTURE.md      the big-picture design
+├── LLD.md               the detailed design — exact behavior, pinned to the test that proves it
+├── BUGS.md              known limitations, stated plainly
+├── RESULTS.md           the naive-vs-real comparison, explained
+├── CLAUDE.md / PRD.md   the original planning documents, kept as written
+└── screenshots/         images embedded above and throughout this file
+
+requirements.txt        exact, pinned dependency versions
+setup.sh                one script: create a virtual environment, install, run the tests
+LICENSE                 MIT
+```
+
+Direct links: [architecture](docs/ARCHITECTURE.md) ·
+[detailed design](docs/LLD.md) · [known limitations](docs/BUGS.md) ·
+[results](docs/RESULTS.md).
 
 ## The project in detail
 
