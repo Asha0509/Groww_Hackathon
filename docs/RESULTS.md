@@ -25,7 +25,7 @@ before, just denominated in ten times as many shares. Since carries a
 cumulative adjustment factor per ISIN (`corpactions.pct_change`) and reports
 **+0.2%**, the real (tiny) intraday move, with the split named. A user who
 trusts the naive number might panic-sell into a split with no actual loss —
-this is the exact failure `CLAUDE.md` calls "the cleverer the scoring, the
+this is the exact failure `docs/CLAUDE.md` calls "the cleverer the scoring, the
 louder the lie."
 
 ## weekend — the staleness lie

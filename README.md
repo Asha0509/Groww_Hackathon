@@ -4,33 +4,9 @@ A watchlist is not a dashboard. It is a diff. A diff is only as good as its
 baseline — so the entire engineering problem is whether the baseline can be
 trusted.
 
-`Since` answers "what did I miss?" instead of "what is this worth?" It tells
+Since answers "what did I miss?" instead of "what is this worth?" It tells
 you what meaningfully changed since you last actually looked, and stays
 silent about everything else.
-
-## The three lies
-
-A naive watchlist lies three ways. Each lie is one subsystem here.
-
-**The baseline is not personal.** Naive systems diff against yesterday's
-close. The correct baseline is whenever *this user* last actually looked,
-held as a per-user, per-instrument watermark that only advances forward, by
-server-assigned sequence number — never by client clock (`app/digest`).
-
-**The baseline decays.** A 1:10 split takes a stock from ₹2455 to ₹245. A
-naive watchlist reports **-90%** and ranks it the biggest move of the day,
-because a 20-sigma move looks the most important — the cleverer the
-scoring, the louder the lie. Nothing happened: the position is worth the
-same, split across ten times the shares. `Since` carries a cumulative
-adjustment factor per ISIN and reports the real move — **+0.2%** — with the
-split named (`app/corpactions`). See `RESULTS.md` for the full comparison.
-
-**The baseline expires.** Naive systems ship one `stale` flag on a global
-timeout, so it fires every single weekend and gets ignored right when it
-matters. Liveness here is judged per instrument, against that instrument's
-own expected tick interval, across four states — `LIVE`, `CLOSED`, `HALTED`,
-`DEGRADED` — where only `DEGRADED` is ever this system's fault
-(`app/session`).
 
 ## Screenshots
 
@@ -38,7 +14,23 @@ own expected tick interval, across four states — `LIVE`, `CLOSED`, `HALTED`,
 ![Split day](docs/split.png)
 ![Naive vs Since](docs/compare.png)
 
-## Setup
+## What it does
+
+- Opens to a short digest — what genuinely changed — sitting above the full
+  watchlist.
+- A card only appears when a price has moved meaningfully since you
+  personally last looked at that stock. Nothing else makes noise.
+- A stock split or bonus issue is recognized and explained in the moment it
+  happens, not mistaken for a price crash.
+- A price jump that doesn't match any known corporate action is flagged as
+  unconfirmed instead of being silently trusted or silently ignored.
+- When a stock's data feed goes quiet, that's shown plainly, in its own
+  word, never disguised as a live, current price.
+- A closed market is never confused with a broken one — those are different
+  facts and get different words.
+- The digest is capped at five cards, on purpose. A quiet day looks quiet.
+
+## How to run it
 
 Requires Python 3.11+.
 
@@ -56,56 +48,185 @@ Run the tests:
 .venv/bin/pytest -q
 ```
 
-Print the naive-vs-Since comparison table:
+Print the comparison between a naive watchlist and this one, on the same
+scripted data:
 
 ```bash
 .venv/bin/python scripts/compare_naive.py
 ```
 
-The demo page has a **Demo scenario** toggle (`Normal` / `Split Day`) and an
-"I looked — reset baseline" button that advances the watermark, so you can
-watch the digest go silent again.
+Measure how the cost of serving many people compares to serving one:
 
-`setup.sh` and the `Makefile` predate this build and still describe a
-Vite/React frontend that isn't part of it — see `docs/BUGS.md`.
+```bash
+.venv/bin/python scripts/benchmark_fanout.py
+```
 
-## Further reading
+The page has four scenario buttons. **Normal**, **Split Day**, and **Feed
+Death** each replay a scripted, second-by-second trading session from a
+fixed starting point — the same "day," exactly the same way, every time.
+**Live** pulls real current prices for eight Indian stocks and refreshes
+them every ten seconds. An "I looked" button resets your personal baseline,
+so the digest goes quiet again until something new actually happens.
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module map, data model,
-  request flow, and why a modular monolith on SQLite (conceptually — this
-  build is in-memory) beats microservices and a message broker at this scale.
-- [`docs/RESULTS.md`](docs/RESULTS.md) — the naive-vs-Since output table, annotated.
-- [`docs/BUGS.md`](docs/BUGS.md) — known limitations, and what was skipped as
-  a time cut vs. a deliberate design decision.
+`setup.sh` predates this build and still describes a different frontend
+that isn't part of it — see `docs/BUGS.md`.
 
-## Decisions & trade-offs
+## How the project is organized
 
-**No LLM anywhere in the scoring or ranking path.** A scorer you can't
-unit-test is a scorer you can't defend. Every signal here is a pure function
-over numbers — deterministic, seeded, and reproducible under Q&A pressure.
+| Folder | What's in it |
+|---|---|
+| `app/` | The application itself. |
+| `app/feed/` | Where prices come from: a real one (live market data for eight stocks) and a rehearsal tool (a small set of scripted scenarios used to safely demonstrate rare events, like a stock split or a data outage, on command). |
+| `app/ingest/` | Makes sure price updates are applied in the right order, and a late or repeated update can never overwrite a newer one. |
+| `app/corpactions/` | Keeps a stock split or bonus issue from being mistaken for a real price move — and flags a suspicious, unexplained price jump instead of quietly trusting it. |
+| `app/session/` | Notices when a stock's data has gone quiet and says so plainly, instead of showing an old number as if it were current. |
+| `app/digest/` | Remembers what a person last saw and shows only what's genuinely different since then. |
+| `app/db.py` | Saves that memory to disk, so it survives a restart. |
+| `app/static/` | The single page shown in a browser — plain HTML, no framework. |
+| `docs/` | Design notes: [the big-picture design](docs/ARCHITECTURE.md), [the detailed design](docs/LLD.md), [known limitations](docs/BUGS.md), and [results](docs/RESULTS.md). |
+| `tests/` | Automated checks proving the important rules actually hold. |
+| `scripts/` | Small standalone programs used to measure and compare things. |
 
-**No news, charts, price alerts, portfolio tracking, or social features.**
-The brief rewards depth on one problem — trusting the baseline — not
-breadth across a feature list. Every one of those is a different, well-worn
-problem that would dilute the actual argument this project is making.
+## The project in detail
 
-**No Kafka, no Redis, no message broker.** A few thousand instruments and a
-tick-driven update loop don't need a distributed queue; they need one
-process that applies ticks in order. Introducing a broker here would be
-solving a scale problem this system doesn't have yet, at the cost of a
-partial-failure mode it doesn't need yet either.
+This section walks through what each part actually does and what would go
+wrong without it — not just that a feature exists, but what it's for.
 
-**No real market-data vendor.** A deterministic, seeded simulator makes
-every failure mode — a split, a feed outage, a weekend — reproducible on
-demand, which a real vendor feed fundamentally cannot promise during a live
-demo. The vendor-adapter shape (`app/feed.SCENARIOS`, the `Tick` dataclass)
-is there so a real feed is a second implementation of the same interface,
-not a rewrite.
+### Where prices come from
 
-**SQLite, conceptually, over Postgres.** The write pattern is single-writer
-(one ingest path), which is exactly what SQLite in WAL mode is for, with
-zero operational surface. The interesting engineering problem is the schema
-and the invariants it encodes (see `ARCHITECTURE.md`), not the storage
-engine underneath it — and this build goes further still, holding that
-schema's shapes as in-memory dataclasses rather than standing up even
-SQLite, as a scope cut for the demo window (`BUGS.md`).
+Two sources feed the exact same pipeline. One is real: current prices for
+eight Indian stocks (Reliance, Infosys, HDFC Bank, Hindustan Unilever,
+State Bank of India, Shree Cement, Manappuram Finance, and the Indian
+Energy Exchange), pulled from a public market-data source with no account
+or key needed. The other is a rehearsal tool: a handful of scripted
+scenarios that replay a realistic trading session from a fixed starting
+point, so the same "day" happens exactly the same way no matter how many
+times it's run.
+
+A real stock split, or a real market-data outage, cannot be scheduled to
+happen during a specific ten-minute window. A system that claims to handle
+either one needs to be shown actually doing so, not just asserted to. That's
+what the scripted scenarios are for — proof the handling works, on command,
+not a promise that it would.
+
+### What a stock split would otherwise do to the numbers
+
+A 1:10 stock split takes a share price from roughly ₹2,455 to roughly ₹245.
+That's a real, correct number — nothing wrong happened to the data. A
+watchlist that just subtracts the old price from the new one reports
+**-90%**, and would rank it as the single biggest move of the day, because
+the bigger a move looks, the more urgent it seems. That's backwards: the
+shareholder's position is worth exactly what it was worth the day before,
+just split across ten times as many shares. This system tracks each
+corporate action as an adjustment and reports the real move — **+0.2%**,
+the actual, tiny price change that day — with the split named plainly
+alongside it. Run `scripts/compare_naive.py` to see both numbers side by
+side, computed from the same data.
+
+### What a closed market would otherwise look like
+
+Say the last real price update came in Friday afternoon, before the market
+closed for the weekend. A watchlist that checks "has it been quiet for more
+than 30 seconds?" reports **stale** by Saturday morning — a warning that
+fires every single weekend, forever, whether anything is actually wrong or
+not. A warning a person learns to expect and ignore on schedule has already
+stopped working: the first time something is genuinely broken, it looks
+exactly like every other quiet weekend. This system asks a different
+question first — is the market even open right now? — before it ever asks
+whether a particular stock has gone quiet. A closed market reports
+**closed**, correctly, every time. Only a stock that's unexpectedly silent
+*while the market is open* is ever treated as the system's own fault.
+
+### What an unconfirmed price jump looks like
+
+A real stock split or bonus issue moves a price by a clean, recognizable
+ratio — half, a fifth, a tenth, a twentieth of what it was, or the reverse.
+This system watches for exactly that shape. When a price jumps by one of
+those clean ratios and there's no record of a real corporate action behind
+it, it's flagged as unconfirmed and held back from being reported as a
+genuine price move — never silently trusted, and never silently thrown
+away either. An ordinary price move essentially never lands precisely on
+one of those ratios, so this stays a quiet, narrow check rather than a
+noisy one.
+
+### What a quiet feed looks like
+
+Sometimes a data source stops sending updates for one particular stock
+while the market is still open and every other stock keeps ticking
+normally. That's a different problem from a closed market, and it gets a
+different word: the affected stock is marked as having gone quiet, its
+price is labeled as the last one actually received rather than a current
+one, and it's never scored as if a real price move had just happened.
+
+### What happens when you say "I looked"
+
+Every person's sense of "what's new" is personal — it depends on when they
+themselves last checked, not on some shared clock. That position is tracked
+per person, per stock, and it only ever moves forward: looking at an older
+snapshot (say, from a second device that's behind) can never accidentally
+rewind it. Pressing "I looked" moves that position up to the current
+moment, and the digest goes quiet again until something genuinely new
+happens after that point.
+
+### What survives a restart
+
+A person's "I looked" position is saved to disk the moment it changes, and
+loaded back the moment the server starts up again — so restarting the
+service doesn't make it forget what someone had already seen. Market data
+itself is treated differently on purpose: switching between scenarios
+always starts that scenario over from a clean, predictable beginning, so a
+scripted demonstration behaves exactly the same way every time it's shown,
+regardless of what happened to be left over from a previous run.
+
+## Key design decisions
+
+**A personal position is tracked by a count, not a clock.** Every device's
+clock can be wrong or out of sync with every other device's. What can't be
+faked is a count that only ever goes up, assigned by the server itself —
+so two devices can't corrupt each other's sense of "what's new."
+
+**An unconfirmed price jump is flagged, not guessed at.** The check looks
+for a specific, recognizable shape — a clean ratio with no matching record
+— and deliberately doesn't try to catch everything. A jump that doesn't
+have a clean, round shape passes through unflagged; that's a known,
+accepted gap, not a hidden one.
+
+**Shared data is protected from being read half-updated**, and a
+person's saved position durably survives a restart. Both are real,
+working, and tested — including by actually restarting the running service
+and confirming the position was still there afterward, not just by
+reasoning that it should be.
+
+**The cost of serving many people was measured, not just argued.** Running
+the actual code against thousands of simulated stocks and a thousand
+simulated people showed that serving the thousandth person costs about the
+same, per person, as serving the first — because the expensive part of the
+work happens once, shared, rather than being repeated for every viewer.
+
+**Some things are deliberately left out**, and said so plainly rather than
+hidden: a cooldown so a flickering price near the threshold doesn't
+re-trigger every few seconds, three additional kinds of alert beyond a
+plain price move, and a way to re-check a corporate action against trading
+volume for extra confidence. Each is a real gap, named honestly, not
+quietly worked around.
+
+**This is a second pass, not the first.** The system was built, then
+deliberately hardened afterward — closing gaps that were already known and
+disclosed, not discovered for the first time under pressure.
+
+**AI tools were used for scaffolding, wording, and iteration speed.** The
+underlying framing — three specific ways a naive watchlist lies, and one
+subsystem answering each — along with every module boundary and every
+trade-off on this page, was a decision made and owned by the author, not
+outsourced.
+
+**A real stock split isn't shown happening live**, on purpose. Real prices
+drive everything shown live; a real split or a real outage can't be
+scheduled to occur during a short, specific demonstration window, so those
+are shown through the same scripted rehearsal tool described above instead
+— running through the exact same detection logic either way. Only where
+the price comes from differs.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
