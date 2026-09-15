@@ -28,6 +28,35 @@ def test_normal_scenario_loads_and_digest_responds():
     assert resp.json()["scenario"] == "normal"
 
 
+def test_load_scenario_detects_an_unconfirmed_clean_ratio_gap(monkeypatch):
+    """Exercises _load_scenario's own detection wiring end-to-end — not just
+    build_digest's handling of a hand-built dict (tests/test_corpactions.py
+    covers that half). A tick sequence with a clean ~1:10 gap and no
+    CorporateAction record must populate _unverified for that instrument.
+    """
+    from app.models import Tick
+
+    def fake_scenario(now_epoch):
+        isin = "INE002A01018"
+        ticks = [
+            Tick(isin, 1, now_epoch - 2, 2450.0, 1000),
+            Tick(isin, 2, now_epoch, 245.0, 1000),  # clean ~10x drop, no CA record
+        ]
+        return ticks, []  # no confirmed CorporateAction
+
+    monkeypatch.setitem(m.SCENARIOS, "unconfirmed_gap_test", fake_scenario)
+    m._load_scenario("unconfirmed_gap_test")
+
+    assert "INE002A01018" in m._unverified
+    assert "1:10" in m._unverified["INE002A01018"]
+
+    digest = client.get("/api/digest").json()
+    card = next(c for c in digest["cards"] if c["isin"] == "INE002A01018")
+    assert card["kind"] == "UNVERIFIED_CORPORATE_ACTION"
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
 def test_feed_death_scenario_flags_the_dead_instrument_degraded_not_move():
     """INVARIANT I5/I6: an instrument whose feed has gone dark mid-session is
     DEGRADED, not silently shown with a stale price as if it were current —
