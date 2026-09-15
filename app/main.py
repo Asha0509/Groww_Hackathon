@@ -1,4 +1,5 @@
 import datetime as dt
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -22,6 +23,18 @@ _watermarks = WatermarkStore()
 _scenario = "normal"
 _ca_notes: dict[str, dict] = {}
 _unverified: dict[str, str] = {}
+
+# Guards every read and every mutation of the five globals above. FastAPI
+# runs each sync endpoint in its own OS thread, so a scenario reload racing
+# a digest read is a real interleaving, not a theoretical one — without this
+# lock, a reader can observe _states already swapped to the new scenario
+# while _watermarks (or _scenario itself) is still the old one, because the
+# five-name reassignment at the end of _load_scenario is not atomic across
+# threads on its own. The lock is held only around the swap itself (the tick
+# replay that builds the new state happens on fresh local objects, untouched
+# by other requests) and around each read, so it stays a short critical
+# section rather than serializing unrelated work like `/` or `/healthz`.
+_lock = threading.Lock()
 
 _CA_LABEL = {"SPLIT": "split", "BONUS": "bonus", "DIVIDEND": "dividend", "RIGHTS": "rights issue"}
 
@@ -68,7 +81,8 @@ def _load_scenario(name: str) -> None:
             # baseline: "whenever this user last actually looked" — here, session start.
             watermarks.ack(USER, t.isin, seq=1, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
 
-    _states, _watermarks, _scenario, _ca_notes, _unverified = states, watermarks, name, ca_notes, unverified
+    with _lock:
+        _states, _watermarks, _scenario, _ca_notes, _unverified = states, watermarks, name, ca_notes, unverified
 
 
 @app.on_event("startup")
@@ -89,40 +103,43 @@ def set_scenario(name: str):
 
 @app.get("/api/watchlist")
 def watchlist():
-    out = []
-    for inst in INSTRUMENTS:
-        st = _states[inst.isin]
-        state = instrument_session_state(DEMO_NOW, DEMO_NOW_EPOCH, inst, st)
-        note = _ca_notes.get(inst.isin)
-        out.append(
-            {
-                "isin": inst.isin,
-                "symbol": inst.symbol,
-                "name": inst.name,
-                "ltp": st.ltp_raw,
-                "age_seconds": round(DEMO_NOW_EPOCH - st.last_exchange_ts),
-                "session_state": state.value,
-                "ca_note": note["text"] if note else None,
-                "ca_pre_price": note["pre_price"] if note else None,
-            }
-        )
-    return {"scenario": _scenario, "watchlist": out}
+    with _lock:
+        out = []
+        for inst in INSTRUMENTS:
+            st = _states[inst.isin]
+            state = instrument_session_state(DEMO_NOW, DEMO_NOW_EPOCH, inst, st)
+            note = _ca_notes.get(inst.isin)
+            out.append(
+                {
+                    "isin": inst.isin,
+                    "symbol": inst.symbol,
+                    "name": inst.name,
+                    "ltp": st.ltp_raw,
+                    "age_seconds": round(DEMO_NOW_EPOCH - st.last_exchange_ts),
+                    "session_state": state.value,
+                    "ca_note": note["text"] if note else None,
+                    "ca_pre_price": note["pre_price"] if note else None,
+                }
+            )
+        return {"scenario": _scenario, "watchlist": out}
 
 
 @app.get("/api/digest")
 def digest():
-    cards = build_digest(USER, INSTRUMENTS, _states, _watermarks, unverified=_unverified)
-    return {"scenario": _scenario, "cards": cards}
+    with _lock:
+        cards = build_digest(USER, INSTRUMENTS, _states, _watermarks, unverified=_unverified)
+        return {"scenario": _scenario, "cards": cards}
 
 
 @app.post("/api/watermark/ack")
 def ack(isin: str | None = None):
     # INVARIANT I2: "I looked" advances the watermark by seq, never by client clock.
-    targets = [isin] if isin else [i.isin for i in INSTRUMENTS]
-    for iso in targets:
-        st = _states[iso]
-        _watermarks.ack(USER, iso, seq=st.last_seq, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
-    return {"ok": True}
+    with _lock:
+        targets = [isin] if isin else [i.isin for i in INSTRUMENTS]
+        for iso in targets:
+            st = _states[iso]
+            _watermarks.ack(USER, iso, seq=st.last_seq, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
+        return {"ok": True}
 
 
 _INDEX_HTML = (Path(__file__).parent / "static" / "index.html").read_text()
