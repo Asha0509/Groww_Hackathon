@@ -104,9 +104,28 @@ setup.sh                one script: create a virtual environment, install, run t
 LICENSE                 MIT
 ```
 
-Direct links: [architecture](docs/ARCHITECTURE.md) ·
-[detailed design](docs/LLD.md) · [known limitations](docs/BUGS.md) ·
-[results](docs/RESULTS.md).
+## What's in each doc
+
+| Doc | What's in it |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | the big-picture design — module map, data model, how a request flows through the system, and why it's shaped this way (one process instead of several, SQLite instead of a bigger database, a real feed for prices alongside a rehearsal tool for rare events) |
+| [`docs/LLD.md`](docs/LLD.md) | the detailed design — exact fields, every distinct outcome each part can produce, what happens at the edges, and the specific test that proves each claim |
+| [`docs/BUGS.md`](docs/BUGS.md) | known limitations, stated plainly — what isn't built yet, and whether that was a time constraint or a deliberate choice |
+| [`docs/RESULTS.md`](docs/RESULTS.md) | the naive-vs-real comparison from `compare_naive.py`, walked through line by line |
+| [`docs/CLAUDE.md`](docs/CLAUDE.md) | the original design brief this project was built against, kept as written |
+| [`docs/PRD.md`](docs/PRD.md) | the original product requirements doc, kept as written |
+
+## Tech stack
+
+| Piece | What it's for | Why this one |
+|---|---|---|
+| Python 3.11+ | the whole backend | the standard library alone covers most of what's needed here (SQLite, timezones) — no reason to reach further |
+| FastAPI | the web server and API | typed request handling and validation without writing that by hand |
+| Uvicorn | runs the server | the standard server FastAPI itself is built to run under |
+| SQLite, stdlib `sqlite3`, WAL mode | saving a person's position to disk | one process writing, many cheap reads — exactly what SQLite is for, with zero setup |
+| httpx | fetching real prices, and running the test client | already needed for testing FastAPI apps, so pulling real prices with it added nothing new to install |
+| pytest / pytest-asyncio | the test suite | plain and widely known — nothing fancier is needed at this size |
+| Plain HTML, CSS, and JavaScript, no framework | the one page a browser renders | a single page with four buttons and two tables doesn't need a build step |
 
 ## The project in detail
 
