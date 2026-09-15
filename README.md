@@ -123,6 +123,8 @@ the actual, tiny price change that day — with the split named plainly
 alongside it. Run `scripts/compare_naive.py` to see both numbers side by
 side, computed from the same data.
 
+![Reliance's 1:10 split shown as a labeled note on its watchlist row, with the price before and after the split both visible, instead of an unexplained crash](docs/screenshots/corporate_action.png)
+
 ### What a closed market would otherwise look like
 
 Say the last real price update came in Friday afternoon, before the market
@@ -158,6 +160,8 @@ different word: the affected stock is marked as having gone quiet, its
 price is labeled as the last one actually received rather than a current
 one, and it's never scored as if a real price move had just happened.
 
+![HDFC Bank's row marked DEGRADED with its actual silence duration, and the digest naming it directly instead of showing a stale price as if it were live](docs/screenshots/degraded_feed.png)
+
 ### What happens when you say "I looked"
 
 Every person's sense of "what's new" is personal — it depends on when they
@@ -167,6 +171,9 @@ snapshot (say, from a second device that's behind) can never accidentally
 rewind it. Pressing "I looked" moves that position up to the current
 moment, and the digest goes quiet again until something genuinely new
 happens after that point.
+
+![Before: a digest card showing Reliance up 3.11% since the baseline. After: the same page, moments after pressing "I looked" — the card is gone and the digest reads "nothing worth telling you"](docs/screenshots/before_i_looked.png)
+![The watchlist after acknowledging the move — the digest above this has already gone quiet again](docs/screenshots/after_i_looked.png)
 
 ### What survives a restart
 
