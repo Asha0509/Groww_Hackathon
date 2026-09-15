@@ -117,6 +117,9 @@ LICENSE                 MIT
 
 ## Tech stack
 
+The list is short on purpose — what's actually being tested is what these
+few pieces are made to prove, covered below.
+
 | Piece | What it's for | Why this one |
 |---|---|---|
 | Python 3.11+ | the whole backend | the standard library alone covers most of what's needed here (SQLite, timezones) — no reason to reach further |
@@ -127,10 +130,40 @@ LICENSE                 MIT
 | pytest / pytest-asyncio | the test suite | plain and widely known — nothing fancier is needed at this size |
 | Plain HTML, CSS, and JavaScript, no framework | the one page a browser renders | a single page with four buttons and two tables doesn't need a build step |
 
+### How a price update actually flows through this
+
+```mermaid
+flowchart TD
+    A["a price update arrives<br/>(scripted, or real)"] --> B["ingest: applied only if newer<br/>than the last one already seen"]
+    B --> C["corpactions: adjusted for any<br/>known corporate action"]
+    B --> D["session: is this stock's data<br/>live, closed, halted, or gone quiet?"]
+    C --> E["digest: compared against what<br/>this person last saw"]
+    D --> E
+    E --> F{"moved enough<br/>to matter?"}
+    F -->|yes| G["shown as a card<br/>(top 5, biggest move first)"]
+    F -->|no| H["nothing — stays quiet"]
+```
+
 ## The project in detail
 
 This section walks through what each part actually does and what would go
 wrong without it — not just that a feature exists, but what it's for.
+
+```mermaid
+flowchart TD
+    subgraph L1["the baseline isn't personal"]
+        direction LR
+        M1[digest] --> R1["a watermark: server-assigned,<br/>never a client clock"]
+    end
+    subgraph L2["the baseline decays"]
+        direction LR
+        M2[corpactions] --> R2["a cumulative adjustment factor,<br/>keyed by ISIN, not ticker"]
+    end
+    subgraph L3["the baseline expires"]
+        direction LR
+        M3[session] --> R3["four states,<br/>judged per instrument"]
+    end
+```
 
 ### Where prices come from
 
