@@ -45,6 +45,7 @@
     <span class="toolbar-label">Demo scenario:</span>
     <button id="btn-normal" onclick="setScenario('normal')">Normal</button>
     <button id="btn-split_day" onclick="setScenario('split_day')">Split Day</button>
+    <button id="btn-feed_death" onclick="setScenario('feed_death')">Feed Death</button>
   </div>
 
   <section>
@@ -70,13 +71,16 @@
   </section>
 
 <script>
-let scenario = 'normal';
+const SCENARIOS = ['normal', 'split_day', 'feed_death'];
+
+function syncScenarioButtons(active) {
+  for (const name of SCENARIOS) {
+    document.getElementById(`btn-${name}`).classList.toggle('active', name === active);
+  }
+}
 
 async function setScenario(name) {
   await fetch(`/api/scenario/${name}`, { method: 'POST' });
-  scenario = name;
-  document.getElementById('btn-normal').classList.toggle('active', name === 'normal');
-  document.getElementById('btn-split_day').classList.toggle('active', name === 'split_day');
   await refresh();
 }
 
@@ -85,14 +89,23 @@ async function markSeen() {
   await refresh();
 }
 
+function digestCardHtml(c) {
+  if (c.kind === 'UNVERIFIED_CORPORATE_ACTION') {
+    return `<div class="card"><span>${c.symbol} — UNVERIFIED</span><span class="pct down">${c.message}</span></div>`;
+  }
+  if (c.kind === 'DEGRADED_FEED') {
+    return `<div class="card"><span>${c.symbol} — DEGRADED</span><span class="pct down">${c.message}</span></div>`;
+  }
+  return `<div class="card"><span>${c.symbol} — ${c.kind}</span><span class="pct ${c.pct_change >= 0 ? 'up' : 'down'}">${c.pct_change >= 0 ? '+' : ''}${c.pct_change}%</span></div>`;
+}
+
 async function refresh() {
   const [wl, dg] = await Promise.all([
     fetch('/api/watchlist').then(r => r.json()),
     fetch('/api/digest').then(r => r.json()),
   ]);
 
-  document.getElementById('btn-normal').classList.toggle('active', wl.scenario === 'normal');
-  document.getElementById('btn-split_day').classList.toggle('active', wl.scenario === 'split_day');
+  syncScenarioButtons(wl.scenario);
 
   const tbody = document.getElementById('watchlist');
   tbody.innerHTML = wl.watchlist.map(row => `
@@ -106,24 +119,11 @@ async function refresh() {
   `).join('');
 
   const digestEl = document.getElementById('digest');
-  if (dg.cards.length === 0) {
-    digestEl.innerHTML = '<div class="empty">Nothing worth telling you. That is the point.</div>';
-  } else {
-    digestEl.innerHTML = dg.cards.map(c => c.kind === 'UNVERIFIED_CORPORATE_ACTION' ? `
-      <div class="card">
-        <span>${c.symbol} — UNVERIFIED</span>
-        <span class="pct down">${c.message}</span>
-      </div>
-    ` : `
-      <div class="card">
-        <span>${c.symbol} — ${c.kind}</span>
-        <span class="pct ${c.pct_change >= 0 ? 'up' : 'down'}">${c.pct_change >= 0 ? '+' : ''}${c.pct_change}%</span>
-      </div>
-    `).join('');
-  }
+  digestEl.innerHTML = dg.cards.length === 0
+    ? '<div class="empty">Nothing worth telling you. That is the point.</div>'
+    : dg.cards.map(digestCardHtml).join('');
 }
 
-document.getElementById('btn-normal').classList.add('active');
 refresh();
 </script>
 </body>

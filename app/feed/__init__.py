@@ -68,4 +68,32 @@ def generate_split_day(now_epoch: float) -> tuple[list[Tick], list[CorporateActi
     return adjusted, [action]
 
 
-SCENARIOS = {"normal": generate_normal, "split_day": generate_split_day}
+def generate_feed_death(now_epoch: float) -> tuple[list[Tick], list[CorporateAction]]:
+    """HDFCBANK ticks normally, then its feed simply goes quiet for the rest
+    of the session — no more ticks arrive, ever. Every other instrument keeps
+    ticking right up to `now_epoch`, so the contrast is visible: one silent
+    instrument next to seven live ones, not a market-wide outage.
+
+    This is not the same failure as a `CLOSED` market: the exchange is open,
+    other instruments are still trading, and only this one feed has gone
+    dark — the exact distinction `session.instrument_session_state` exists
+    to draw (DEGRADED, not CLOSED).
+    """
+    ticks = _walk(now_epoch)
+    dead_isin = "INE040A01034"  # HDFCBANK
+    silence_sec = 60.0  # far past the liquid-tier DEGRADED threshold (12s)
+
+    shifted = []
+    for t in ticks:
+        if t.isin == dead_isin:
+            shifted.append(Tick(t.isin, t.seq, t.exchange_ts - silence_sec, t.price_raw, t.volume))
+        else:
+            shifted.append(t)
+    return shifted, []
+
+
+SCENARIOS = {
+    "normal": generate_normal,
+    "split_day": generate_split_day,
+    "feed_death": generate_feed_death,
+}

@@ -10,7 +10,7 @@ from app.digest import WatermarkStore, build_digest
 from app.feed import INSTRUMENTS, SCENARIOS
 from app.ingest import apply_tick
 from app.models import InstrumentState
-from app.session import instrument_session_state
+from app.session import SessionState, instrument_session_state
 
 app = FastAPI(title="Since")
 
@@ -124,10 +124,25 @@ def watchlist():
         return {"scenario": _scenario, "watchlist": out}
 
 
+def _degraded_notes() -> dict[str, str]:
+    """Instruments currently DEGRADED, with a plain-language reason. Called
+    only while holding _lock."""
+    notes = {}
+    for inst in INSTRUMENTS:
+        st = _states[inst.isin]
+        state = instrument_session_state(DEMO_NOW, DEMO_NOW_EPOCH, inst, st)
+        if state == SessionState.DEGRADED:
+            age_s = round(DEMO_NOW_EPOCH - st.last_exchange_ts)
+            notes[inst.isin] = f"feed has gone quiet — no new ticks in {age_s}s. The price shown is the last one received, not a current price."
+    return notes
+
+
 @app.get("/api/digest")
 def digest():
     with _lock:
-        cards = build_digest(USER, INSTRUMENTS, _states, _watermarks, unverified=_unverified)
+        cards = build_digest(
+            USER, INSTRUMENTS, _states, _watermarks, unverified=_unverified, degraded=_degraded_notes()
+        )
         return {"scenario": _scenario, "cards": cards}
 
 

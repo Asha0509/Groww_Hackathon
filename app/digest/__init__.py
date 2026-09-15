@@ -45,8 +45,10 @@ def build_digest(
     watermarks: WatermarkStore,
     budget: int = DEFAULT_BUDGET,
     unverified: dict[str, str] | None = None,
+    degraded: dict[str, str] | None = None,
 ) -> list[dict]:
     unverified = unverified or {}
+    degraded = degraded or {}
     cards = []
     for inst in instruments:
         st = states[inst.isin]
@@ -54,6 +56,20 @@ def build_digest(
         if wm is None:
             # first time seeing this instrument: baseline is now, no card
             watermarks.ack(user_id, inst.isin, st.last_seq, st.ltp_raw, st.cum_factor)
+            continue
+        if inst.isin in degraded:
+            # INVARIANT I5/I6: a degraded feed is never reported as a price
+            # move — the last known price can't be trusted while the feed is
+            # dark, so it's flagged instead of silently scored either way.
+            cards.append(
+                {
+                    "isin": inst.isin,
+                    "symbol": inst.symbol,
+                    "kind": "DEGRADED_FEED",
+                    "message": degraded[inst.isin],
+                    "score": 1.0,
+                }
+            )
             continue
         if inst.isin in unverified:
             # INVARIANT I9: a clean-ratio gap with no confirmed corporate action

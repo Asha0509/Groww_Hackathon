@@ -25,6 +25,31 @@ def test_normal_scenario_loads_and_digest_responds():
     assert resp.json()["scenario"] == "normal"
 
 
+def test_feed_death_scenario_flags_the_dead_instrument_degraded_not_move():
+    """INVARIANT I5/I6: an instrument whose feed has gone dark mid-session is
+    DEGRADED, not silently shown with a stale price as if it were current —
+    and every other instrument, still ticking normally, stays LIVE.
+    """
+    client.post("/api/scenario/feed_death")
+
+    wl = client.get("/api/watchlist").json()
+    rows = {r["isin"]: r for r in wl["watchlist"]}
+    hdfc = rows["INE040A01034"]  # HDFCBANK
+    assert hdfc["session_state"] == "DEGRADED"
+    assert hdfc["age_seconds"] >= 60
+
+    live_others = [r for isin, r in rows.items() if isin != "INE040A01034"]
+    assert all(r["session_state"] == "LIVE" for r in live_others)
+
+    digest = client.get("/api/digest").json()
+    degraded_cards = [c for c in digest["cards"] if c["isin"] == "INE040A01034"]
+    assert len(degraded_cards) == 1
+    assert degraded_cards[0]["kind"] == "DEGRADED_FEED"
+    assert "pct_change" not in degraded_cards[0]  # never scored as a move
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
 def test_concurrent_scenario_reload_and_reads_stay_internally_consistent():
     """The lock in app.main guards exactly this: without it, a reader can
     observe _states already swapped to the new scenario while _scenario (or

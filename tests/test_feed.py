@@ -1,4 +1,4 @@
-from app.feed import generate_normal, generate_split_day
+from app.feed import generate_feed_death, generate_normal, generate_split_day
 
 
 def test_normal_scenario_is_deterministic():
@@ -24,3 +24,19 @@ def test_split_day_price_drops_tenfold_at_split_seq():
     before = next(t for t in reliance if t.seq == 5)
     after = next(t for t in reliance if t.seq == 6)
     assert after.price_raw < before.price_raw / 8  # roughly a 10x drop
+
+
+def test_feed_death_only_silences_one_instrument():
+    now_epoch = 1_700_000_000
+    ticks, actions = generate_feed_death(now_epoch)
+    assert actions == []
+
+    last_tick_by_isin: dict[str, float] = {}
+    for t in ticks:
+        last_tick_by_isin[t.isin] = max(last_tick_by_isin.get(t.isin, 0), t.exchange_ts)
+
+    dead = last_tick_by_isin.pop("INE040A01034")  # HDFCBANK
+    assert now_epoch - dead >= 60  # well past the liquid-tier DEGRADED threshold
+
+    for isin, last_ts in last_tick_by_isin.items():
+        assert now_epoch - last_ts < 12, f"{isin} should still be ticking right up to now_epoch"
