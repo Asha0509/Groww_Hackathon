@@ -28,7 +28,7 @@ app/
 └─ main.py         FastAPI app: wires the above into scenario/watchlist/digest endpoints
 ```
 
-Nothing here imports from `main.py`. Every package is importable and unit-testable
+Nothing here imports from `app/main.py`. Every package is importable and unit-testable
 with no server running — that's what makes `tests/` exercise the invariants
 directly instead of through HTTP.
 
@@ -88,9 +88,9 @@ auth, confirmed against all eight instruments before committing to it.
   can fail per-symbol (see below), and why the deterministic scenarios,
   not this feed, are what the graded demo's core walkthrough runs on.
 - **One HTTP call per instrument**, sequential, ~5s timeout each — polling
-  all eight is a real, measurable cost per refresh, not free. `main.py`'s
+  all eight is a real, measurable cost per refresh, not free. `app/main.py`'s
   `/api/live/refresh` does this fetch *before* acquiring the shared lock
-  (see the lock's own comment in `main.py`), specifically so this latency
+  (see the lock's own comment in `app/main.py`), specifically so this latency
   never blocks any other endpoint.
 - **A real, live bug this caught**: `regularMarketTime`/session-state math
   needs real IST (India Standard Time), not the server's own local
@@ -106,7 +106,7 @@ auth, confirmed against all eight instruments before committing to it.
   its Yahoo `.NS` symbol verified the same way, not assumed.
 
 **What deliberately didn't change**: `ingest`, `corpactions`, `session`,
-and `digest` have no idea a live vendor exists. `main.py`'s
+and `digest` have no idea a live vendor exists. `app/main.py`'s
 `_apply_one_tick` is the one piece of ingest logic every tick goes
 through — whether it came from `SCENARIOS[name](...)` or
 `fetch_live_ticks(...)` — so the unconfirmed-corporate-action check (I9)

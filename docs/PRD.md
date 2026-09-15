@@ -95,7 +95,7 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 
 | Rubric line | How this build earns it | Verified by |
 |---|---|---|
-| **Engineering Depth** — architecture, correctness, reliability, scalability | ISIN keying, monotonic watermarks, ordering guard, per-instrument fan-out (O(instruments) not O(users×instruments)) | `test_ordering.py`, `test_watermark.py`, README scaling section |
+| **Engineering Depth** — architecture, correctness, reliability, scalability | ISIN keying, monotonic watermarks, ordering guard, per-instrument fan-out (O(instruments) not O(users×instruments)) | `tests/test_digest.py::test_watermark_never_rewinds`, `tests/test_main.py`, `scripts/benchmark_fanout.py` (real measured numbers, not just argued) |
 | **Product & Problem Interpretation** — beyond the obvious brief | Reframed display → diff; identified that the baseline, not the UI, is the problem | Pitch, README opening, demo beat 1 |
 | **Edge Cases & Resilience** — failures, races, integrity, unreliable deps | Corporate actions, 5-state session model, per-symbol liveness, out-of-order ticks, late CA feed, two-device race | `make demo-tests` red/green table |
 | **Code Quality & Simplicity** — no over-engineering | Modular monolith, SQLite, no broker, no LLM, four scorers | Repo structure, `Decisions & Trade-offs` |
@@ -114,15 +114,15 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 |---|---|
 | Only the **first 1,000** of 2,942 submissions are evaluated | Ship a thin working version at hour 4.5 and submit it. Improve after. |
 | Deployment fails late | Deploy hello-world in the first 30 minutes, before any features |
-| Scope creep into charts/news | P2 list is binding. New ideas go to `OPEN_QUESTIONS.md`, not the repo |
-| Demo breaks live | Scenarios are seeded and deterministic; rehearse the 5-minute run twice |
-| Can't defend it in Q&A | Every invariant in CLAUDE.md is written as a "why" answer. Read them aloud. |
+| Scope creep into charts/news | P2 list is binding. New ideas go to `docs/BUGS.md`, not the repo |
+| Demo breaks live | Scenarios are seeded and deterministic; rehearse the run beforehand |
+| Can't defend it in Q&A | Every invariant in `docs/CLAUDE.md` is written as a "why" answer. Read them aloud. |
 
 ## 8. Submission checklist
 
 - [ ] Git repo, public, clean history
 - [ ] README: setup instructions, architecture, **Decisions & Trade-offs**
-- [ ] `PITCH.md` — exactly ~100 words
+- [ ] 100-word pitch (later folded directly into `README.md`'s opening)
 - [ ] Working deployed URL
 - [ ] `make test` green, `make demo-tests` prints the comparison table
 - [ ] Submitted **early**

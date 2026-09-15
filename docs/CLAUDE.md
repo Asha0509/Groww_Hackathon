@@ -3,6 +3,15 @@
 > Read this file completely before writing any code. It is the contract.
 > When a request in chat conflicts with this file, follow this file and say so.
 
+**Status note, added after a later hardening pass**: this is the original
+design contract, kept as written. One line below (§8, "do not integrate a
+real market data vendor") has since been deliberately superseded — a real
+live feed was added on top of the deterministic simulator this file
+describes, for the reasoning recorded in `README.md` and
+`docs/ARCHITECTURE.md`'s "The live feed" section. Everything else here
+still holds. See `docs/BUGS.md` for the honest, current gap list and
+`docs/LLD.md` for the detailed design as it actually stands today.
+
 ---
 
 ## 1. The one-sentence thesis
@@ -149,7 +158,7 @@ EVENT card instead. This is the single most important line of business logic in 
 - Integrate a real market data vendor. The simulator is the deliverable; the vendor adapter
   interface is the proof we thought about it.
 - Refactor toward abstraction "for later." There is no later.
-- Silently widen scope. If something seems missing, add it to `OPEN_QUESTIONS.md` instead.
+- Silently widen scope. If something seems missing, add it to `docs/BUGS.md` instead (in practice, this is where every open question actually ended up).
 
 **When stuck:** choose the option that is easier to *explain*, not the one that is more impressive.
 
@@ -177,5 +186,5 @@ Scenarios must be **seeded and deterministic**. The demo has to be repeatable un
 - [ ] Deployed URL live
 - [ ] README with setup, architecture diagram, and a **Decisions & Trade-offs** section
       that lists what was deliberately *not* built and why
-- [ ] 100-word pitch in `PITCH.md`
+- [ ] 100-word pitch (later folded directly into `README.md`'s opening rather than kept as a separate file)
 - [ ] All five demo scenarios run end-to-end without a restart
