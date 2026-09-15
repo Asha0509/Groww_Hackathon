@@ -44,7 +44,9 @@ def build_digest(
     states: dict[str, InstrumentState],
     watermarks: WatermarkStore,
     budget: int = DEFAULT_BUDGET,
+    unverified: dict[str, str] | None = None,
 ) -> list[dict]:
+    unverified = unverified or {}
     cards = []
     for inst in instruments:
         st = states[inst.isin]
@@ -52,6 +54,19 @@ def build_digest(
         if wm is None:
             # first time seeing this instrument: baseline is now, no card
             watermarks.ack(user_id, inst.isin, st.last_seq, st.ltp_raw, st.cum_factor)
+            continue
+        if inst.isin in unverified:
+            # INVARIANT I9: a clean-ratio gap with no confirmed corporate action
+            # is never reported as a price move — flag it and stop, don't score it.
+            cards.append(
+                {
+                    "isin": inst.isin,
+                    "symbol": inst.symbol,
+                    "kind": "UNVERIFIED_CORPORATE_ACTION",
+                    "message": unverified[inst.isin],
+                    "score": 1.0,
+                }
+            )
             continue
         change = pct_change(st.ltp_raw, wm.last_seen_price_raw, st.cum_factor, wm.last_seen_cum_factor)
         if abs(change) >= MOVE_THRESHOLD:

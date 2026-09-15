@@ -109,7 +109,12 @@ async function refresh() {
   if (dg.cards.length === 0) {
     digestEl.innerHTML = '<div class="empty">Nothing worth telling you. That is the point.</div>';
   } else {
-    digestEl.innerHTML = dg.cards.map(c => `
+    digestEl.innerHTML = dg.cards.map(c => c.kind === 'UNVERIFIED_CORPORATE_ACTION' ? `
+      <div class="card">
+        <span>${c.symbol} — UNVERIFIED</span>
+        <span class="pct down">${c.message}</span>
+      </div>
+    ` : `
       <div class="card">
         <span>${c.symbol} — ${c.kind}</span>
         <span class="pct ${c.pct_change >= 0 ? 'up' : 'down'}">${c.pct_change >= 0 ? '+' : ''}${c.pct_change}%</span>
