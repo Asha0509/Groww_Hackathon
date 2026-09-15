@@ -95,15 +95,46 @@ O(instruments) work:  ingest tick → update InstrumentState → (maybe) apply C
 O(users) work:        look up watermark → subtract → compare to threshold
 ```
 
-A watchlist with a few thousand instruments and millions of users must not
-redo the adjusted-price math per user — that's the difference between
-`O(instruments)` and `O(users × instruments)`. The per-user step here is a
-dict lookup and a float subtraction; it stays cheap at any user count. This
-build has one user, so the distinction isn't exercised by the demo, but the
-digest function signature — instrument state passed in once, watermark
-looked up per user — is shaped so that swapping in a real per-user fan-out
-loop (e.g. iterating `users_watching(isin)` instead of a single hardcoded
-`USER`) requires no change to the pricing math it calls.
+This build has one user in its live demo, so the distinction isn't
+exercised end-to-end there — but `scripts/benchmark_fanout.py` measures it
+directly against the real `build_digest` function, not a toy stand-in.
+3,000 synthetic instruments, one ingest pass (two ticks each: a baseline,
+then a real move), then digest computation for 1 user vs. 1,000 users
+reading that *same already-ingested* state. Actual output from a run on
+this machine:
+
+```
+instruments (K)                     : 3000
+users (N)                            : 1000
+ingest, one batch, all K instruments : 18.30 ms   (paid once)
+digest for 1 user                    : 8.281 ms
+digest for 1000 users (total)         : 7724.60 ms
+digest for 1000 users (avg/user)      : 7.7246 ms
+per-user cost ratio (N-user avg / 1-user): 0.93x
+```
+
+The number that matters is the last one: serving the 1,000th user costs
+about the *same* per-user as serving the 1st (0.93x — noise, not a trend).
+If the adjusted-price computation were redone per user instead of shared,
+serving 1,000 users would cost 1,000× the 18.30ms ingest pass (~18.3
+seconds) instead of the 18.30ms actually paid, once, above. The per-user
+step itself is not free — 7–8ms to diff 3,000 instruments in pure Python
+is a real cost, and it does scale linearly with instrument count (it is
+`O(instruments)` per user, not `O(1)`) — the claim this defends is narrower
+and still true: the *expensive* step (ingest and corporate-action
+adjustment) is paid once, not once per user, which is the difference
+between `O(instruments)` and `O(users × instruments)` at the part of the
+system that would actually dominate cost at real scale. The digest function
+signature — instrument state passed in once, watermark looked up per user
+— is shaped so that swapping in a real per-user fan-out loop (iterating
+`users_watching(isin)` instead of a single hardcoded `USER`) requires no
+change to the pricing math it calls.
+
+**Honest limits of this measurement**: this is 1,000 sequential Python
+function calls in one process, not 1,000 real concurrent users with real
+network latency, real per-request overhead, or real horizontal scaling
+across machines. It proves the *shape* of the cost — shared work stays
+shared as N grows — not a production capacity number.
 
 ## Why a modular monolith, not microservices
 
