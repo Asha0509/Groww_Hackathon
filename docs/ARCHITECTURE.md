@@ -13,7 +13,10 @@ shape of the system; that one is the detail.
 ```
 app/
 ├─ models.py       Instrument, Tick, InstrumentState — shared plain dataclasses
-├─ feed/           seeded deterministic tick simulator (normal, split_day, feed_death)
+├─ feed/           two vendor adapters behind one Tick shape: a real one
+│                  (Yahoo Finance) for live prices, and a seeded deterministic
+│                  rehearsal tool (normal, split_day, feed_death) for events
+│                  that can't be scheduled to happen live on demand
 ├─ ingest/         ordering guard — applies a tick only if seq > last_seq (I4)
 ├─ corpactions/    cumulative adjustment factor, ISIN-keyed baseline math (I3);
 │                  clean-ratio-gap detection for unconfirmed corporate actions (I9)
@@ -64,6 +67,55 @@ dataclasses it always has (`app/models.py`) — persistence is a side effect
 
 Corporate actions are not persisted as rows; the feed simulator emits them
 alongside the ticks for the scenario in progress (`app/feed.SCENARIOS`).
+
+## The live feed
+
+`app/feed.fetch_live_quote` calls Yahoo Finance's public chart endpoint
+(`query1.finance.yahoo.com/v8/finance/chart/{symbol}`) for each of the
+eight instruments' `.NS` (NSE) ticker. Chosen over the alternatives actually
+tried: `stooq.com`'s documented free quote endpoint (`/q/l/`) no longer
+resolves — it now returns a "page does not exist" response, seemingly
+retired — and Yahoo's batch quote endpoint (`/v7/finance/quote`) now
+returns `401 Unauthorized` without a session/crumb. The single-symbol chart
+endpoint, at `/v8/finance/chart/{symbol}`, still works with no key and no
+auth, confirmed against all eight instruments before committing to it.
+
+**What using it actually costs**, found by running it, not guessed at:
+
+- **No documented rate limit or uptime guarantee.** It's an unofficial,
+  publicly reachable endpoint, not a published API product — which is
+  exactly why `app/main.live_refresh` treats every poll as something that
+  can fail per-symbol (see below), and why the deterministic scenarios,
+  not this feed, are what the graded demo's core walkthrough runs on.
+- **One HTTP call per instrument**, sequential, ~5s timeout each — polling
+  all eight is a real, measurable cost per refresh, not free. `main.py`'s
+  `/api/live/refresh` does this fetch *before* acquiring the shared lock
+  (see the lock's own comment in `main.py`), specifically so this latency
+  never blocks any other endpoint.
+- **A real, live bug this caught**: `regularMarketTime`/session-state math
+  needs real IST (India Standard Time), not the server's own local
+  timezone. This sandbox runs UTC; a naive `datetime.now()` compared
+  against `session`'s hardcoded 09:15–15:30 IST market-hour constants
+  silently misclassified a closed market as `LIVE` by the 5.5-hour offset,
+  found only by actually running live mode and reading real output. Fixed
+  with `zoneinfo.ZoneInfo("Asia/Kolkata")` in `main._now()` — `session`
+  itself needed no change, since it only ever reads `.hour`/`.weekday()`
+  off whatever timezone-aware datetime it's handed.
+- **Symbol coverage isn't guaranteed** beyond the eight tickers checked by
+  hand before this was wired in. A ninth instrument added later would need
+  its Yahoo `.NS` symbol verified the same way, not assumed.
+
+**What deliberately didn't change**: `ingest`, `corpactions`, `session`,
+and `digest` have no idea a live vendor exists. `main.py`'s
+`_apply_one_tick` is the one piece of ingest logic every tick goes
+through — whether it came from `SCENARIOS[name](...)` or
+`fetch_live_ticks(...)` — so the unconfirmed-corporate-action check (I9)
+runs on live data exactly as it does on replayed data: a real corporate
+action landing during live trading, with no confirmed record (Yahoo's
+chart endpoint doesn't expose one), would be flagged
+`UNVERIFIED_CORPORATE_ACTION`, not silently scored — untested against an
+actual live split (there isn't one to wait for), but the same code path,
+same test coverage, as the scripted one.
 
 ## Request flow: `GET /api/digest`
 

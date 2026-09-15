@@ -1,9 +1,16 @@
-"""Deterministic seeded tick simulator. Two scenarios: normal, split_day.
-
-This is the vendor adapter's only implementation — a real feed would satisfy
-the same (isin, seq, exchange_ts, price_raw, volume) shape.
+"""Two vendor adapters behind one shape: (isin, seq, exchange_ts, price_raw,
+volume). `SCENARIOS` below is the deterministic, seeded rehearsal tool —
+every ordinary tick and every rare event (a split, a feed going dark) that a
+demo needs to show working on command, reproducibly, not whenever the real
+market happens to feel like cooperating. `fetch_live_quote` is the other
+adapter: a real vendor, Yahoo Finance's public chart endpoint, for actual
+current prices. Both hand the rest of the system the exact same `Tick`
+shape — `ingest`, `corpactions`, `session`, and `digest` never know which
+one produced it.
 """
 import random
+
+import httpx
 
 from app.corpactions import CorporateAction
 from app.models import Instrument, Tick
@@ -97,3 +104,64 @@ SCENARIOS = {
     "split_day": generate_split_day,
     "feed_death": generate_feed_death,
 }
+
+# Real vendor adapter — no key required, but also no uptime or rate-limit
+# guarantee, which is exactly why it isn't what the deterministic scenarios
+# above run against. See docs/ARCHITECTURE.md for why this endpoint and
+# docs/BUGS.md for its actual observed limitations.
+LIVE_SYMBOLS: dict[str, str] = {
+    "INE002A01018": "RELIANCE.NS",
+    "INE009A01021": "INFY.NS",
+    "INE040A01034": "HDFCBANK.NS",
+    "INE030A01027": "HINDUNILVR.NS",
+    "INE062A01020": "SBIN.NS",
+    "INE070A01015": "SHREECEM.NS",
+    "INE522D01027": "MANAPPURAM.NS",
+    "INE761H01022": "IEX.NS",
+}
+
+_YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+_LIVE_TIMEOUT_SEC = 5.0
+
+
+def fetch_live_quote(yahoo_symbol: str) -> tuple[float, float, int] | None:
+    """Returns (price_raw, exchange_ts, volume) for one symbol, or None on
+    any failure — a bad network, a timeout, a malformed response, a symbol
+    Yahoo doesn't recognize. Never raises: an unreliable dependency going
+    down is an expected, handled outcome here, not an exception the caller
+    has to guard against separately.
+    """
+    try:
+        resp = httpx.get(
+            _YAHOO_CHART_URL.format(symbol=yahoo_symbol),
+            params={"interval": "1m", "range": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=_LIVE_TIMEOUT_SEC,
+        )
+        resp.raise_for_status()
+        meta = resp.json()["chart"]["result"][0]["meta"]
+        price = float(meta["regularMarketPrice"])
+        exchange_ts = float(meta["regularMarketTime"])
+        volume = int(meta.get("regularMarketVolume") or 0)
+        return price, exchange_ts, volume
+    except Exception:
+        return None
+
+
+def fetch_live_ticks(next_seq: dict[str, int]) -> tuple[dict[str, Tick], list[str]]:
+    """Polls every instrument once. `next_seq` maps isin -> the seq to use
+    if this poll succeeds (the caller owns sequencing, same as it would for
+    any other vendor). Returns (ticks_by_isin, failed_isins) — a partial
+    result on a partial outage, never an all-or-nothing failure for seven
+    healthy symbols because one is down.
+    """
+    ticks: dict[str, Tick] = {}
+    failed: list[str] = []
+    for isin, symbol in LIVE_SYMBOLS.items():
+        quote = fetch_live_quote(symbol)
+        if quote is None:
+            failed.append(isin)
+            continue
+        price, exchange_ts, volume = quote
+        ticks[isin] = Tick(isin, next_seq[isin], exchange_ts, round(price, 2), volume)
+    return ticks, failed

@@ -46,6 +46,8 @@
     <button id="btn-normal" onclick="setScenario('normal')">Normal</button>
     <button id="btn-split_day" onclick="setScenario('split_day')">Split Day</button>
     <button id="btn-feed_death" onclick="setScenario('feed_death')">Feed Death</button>
+    <button id="btn-live" onclick="setScenario('live')">Live</button>
+    <span id="liveNote" class="section-note" style="margin:0 0 0 0.4rem;" hidden>real prices, polling every 10s</span>
   </div>
 
   <section>
@@ -71,16 +73,37 @@
   </section>
 
 <script>
-const SCENARIOS = ['normal', 'split_day', 'feed_death'];
+const SCENARIOS = ['normal', 'split_day', 'feed_death', 'live'];
+const LIVE_POLL_MS = 10000;
+let livePollTimer = null;
 
 function syncScenarioButtons(active) {
   for (const name of SCENARIOS) {
     document.getElementById(`btn-${name}`).classList.toggle('active', name === active);
   }
+  document.getElementById('liveNote').hidden = active !== 'live';
+}
+
+// Idempotent: safe to call on every refresh(), whether that refresh was
+// triggered by a button click, the live poll timer itself, or the initial
+// page load landing on a server that's already in live mode.
+function syncLivePolling(active) {
+  if (active === 'live' && !livePollTimer) {
+    livePollTimer = setInterval(async () => {
+      await fetch('/api/live/refresh', { method: 'POST' });
+      await refresh();
+    }, LIVE_POLL_MS);
+  } else if (active !== 'live' && livePollTimer) {
+    clearInterval(livePollTimer);
+    livePollTimer = null;
+  }
 }
 
 async function setScenario(name) {
-  await fetch(`/api/scenario/${name}`, { method: 'POST' });
+  const resp = await fetch(`/api/scenario/${name}`, { method: 'POST' });
+  if (!resp.ok) {
+    alert(`Couldn't switch to "${name}" — the live feed may be unreachable right now. Try again in a moment.`);
+  }
   await refresh();
 }
 
@@ -106,6 +129,7 @@ async function refresh() {
   ]);
 
   syncScenarioButtons(wl.scenario);
+  syncLivePolling(wl.scenario);
 
   const tbody = document.getElementById('watchlist');
   tbody.innerHTML = wl.watchlist.map(row => `
