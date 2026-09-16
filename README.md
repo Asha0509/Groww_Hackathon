@@ -108,7 +108,7 @@ LICENSE                 MIT
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | the big-picture design — module map, data model, how a request flows through the system, and why it's shaped this way (one process instead of several, SQLite instead of a bigger database, a real feed for prices alongside a rehearsal tool for rare events) |
 | [`docs/LLD.md`](docs/LLD.md) | the detailed design — exact fields, every distinct outcome each part can produce, what happens at the edges, and the specific test that proves each claim |
 | [`docs/BUGS.md`](docs/BUGS.md) | known limitations, stated plainly — what isn't built yet, and whether that was a time constraint or a deliberate choice |
-| [`docs/RESULTS.md`](docs/RESULTS.md) | the naive-vs-real comparison from `compare_naive.py`, walked through line by line |
+| [`docs/RESULTS.md`](docs/RESULTS.md) | the naive-vs-real comparison from `scripts/compare_naive.py`, walked through line by line |
 | [`docs/CLAUDE.md`](docs/CLAUDE.md) | the original design brief this project was built against, kept as written |
 | [`docs/PRD.md`](docs/PRD.md) | the original product requirements doc, kept as written |
 
