@@ -121,22 +121,33 @@ same test coverage, as the scripted one.
 
 1. Client calls `GET /api/digest` (no body — the user is implicit, hardcoded
    to `"demo"`; see `BUGS.md` on auth scope).
-2. `main.digest()` reads the current in-memory `_states` (already caught up
-   to every tick applied by the active scenario) and `_watermarks`.
-3. `digest.build_digest` iterates every instrument on the watchlist once:
-   - looks up that instrument's watermark (skip + seed it if this is the
-     first time the instrument's been seen — no card, since there's no prior
-     baseline to diff against);
-   - computes `corpactions.pct_change(ltp_raw, last_seen_price_raw,
-     cum_factor_now, last_seen_cum_factor)` — the I3 adjusted diff, not a raw
-     subtraction;
-   - keeps the instrument only if `abs(pct_change) >= MOVE_THRESHOLD`.
-4. Surviving cards are sorted by `abs(pct_change)` descending and truncated
-   to `DEFAULT_BUDGET = 5` (I10).
+2. `main.digest()` computes the current `degraded` mapping
+   (`_degraded_notes()`, per I5/I6) and reads the in-memory `_states`
+   (already caught up to every tick applied by the active scenario or live
+   poll), `_watermarks`, and `_unverified` (per I9).
+3. `digest.build_digest` iterates every instrument on the watchlist once, in
+   this order:
+   - first-view: if there's no watermark yet, seed one and skip — no card,
+     since there's no prior baseline to diff against;
+   - degraded: if the instrument is in `degraded`, emit a `DEGRADED_FEED`
+     card and stop — the last known price is never scored while the feed is
+     dark;
+   - unverified: if the instrument is in `unverified` (a clean-ratio gap
+     with no confirmed corporate action), emit an
+     `UNVERIFIED_CORPORATE_ACTION` card and stop — never scored as a real
+     move;
+   - otherwise, computes `corpactions.pct_change(ltp_raw,
+     last_seen_price_raw, cum_factor_now, last_seen_cum_factor)` — the I3
+     adjusted diff, not a raw subtraction — and keeps the instrument only if
+     `abs(pct_change) >= MOVE_THRESHOLD`.
+4. Surviving cards are sorted by `score` descending (`abs(pct_change)` for a
+   `MOVE` card, a fixed `1.0` for `DEGRADED_FEED`/`UNVERIFIED_CORPORATE_ACTION`
+   so they surface prominently) and truncated to `DEFAULT_BUDGET = 5` (I10).
 5. Response returns the capped list. No signal computation happened per
-   request — it's a dict lookup and a subtraction. All the expensive work
-   (tick ingestion, corporate-action application) already happened once, when
-   the scenario was loaded, not once per user per request.
+   request — it's a handful of dict lookups and a subtraction. All the
+   expensive work (tick ingestion, corporate-action application, the I9
+   ratio check) already happened once, when the scenario was loaded or the
+   live poll landed, not once per user per request.
 
 ## Why per-instrument fan-out, not per-user computation (I7)
 

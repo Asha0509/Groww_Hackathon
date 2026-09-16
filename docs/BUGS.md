@@ -23,7 +23,7 @@ entries below point back to a specific non-goal named there.
 | No tick sanity validation | Time cut | `app.ingest.apply_tick` only enforces ordering (`tick.seq > state.last_seq`) — it has no opinion on whether `price_raw` is a sane number. A malformed tick (negative, zero, or `NaN` price) that happens to arrive with a valid, increasing `seq` would be applied as-is: it wouldn't crash anything (`corpactions.pct_change`/`adjusted_baseline` guard division by zero, so a zero price doesn't raise), but a negative price would silently produce a nonsensical percentage in a MOVE card. Found while writing `docs/LLD.md`'s failure-behavior section, not previously disclosed. |
 | Volume cross-check for the unconfirmed-CA detector | Time cut | A real corporate action usually has a volume signature a data glitch doesn't. The ratio-shape check above doesn't look at volume at all, so a coincidental clean-ratio price glitch (rare, but possible with synthetic or noisy data) would still be flagged the same as a real unconfirmed split. Next layer, not built. |
 | I10 — cooldown / hysteresis on repeated signals | Time cut | The budget cap (≤5 cards) is built; the part that stops the same instrument re-triggering every poll once it crosses the threshold is not. Without it, a card can flicker in and out of the digest as a price oscillates around `MOVE_THRESHOLD`. |
-| VOLUME, LEVEL, EVENT scorers | Time cut | Only MOVE and the new UNVERIFIED_CORPORATE_ACTION card are implemented. A confirmed corporate action suppresses the *price* lie correctly but doesn't emit a dedicated EVENT card ("1:10 split, share count now 10x") — the watchlist row annotation is UI-layer sugar reading the `_ca_notes` cache, not a signal in the digest's own scoring path. |
+| VOLUME, LEVEL, EVENT scorers | Time cut | Only three card kinds exist in `digest.build_digest`: `MOVE`, `UNVERIFIED_CORPORATE_ACTION`, and `DEGRADED_FEED`. A confirmed corporate action suppresses the *price* lie correctly but doesn't emit a dedicated EVENT card ("1:10 split, share count now 10x") — the watchlist row annotation is UI-layer sugar reading the `_ca_notes` cache, not a signal in the digest's own scoring path. |
 | WebSocket streaming | Design decision | The deterministic scenarios still replay a full tick history to a fixed point in time (`DEMO_NOW`) synchronously on `POST /api/scenario/{name}` — a reproducibility requirement the demo's core walkthrough still leans on. Live mode (`POST /api/live/refresh`) does update prices over time now, but by client-driven polling every 10s, not a server push — no WebSocket, no persistent connection. A poll that fails is just a poll that fails; a desynced WebSocket mid-Q&A would be a harder failure to recover from live. Real streaming is a natural next step once the ingest path needs to push rather than be asked. |
 | Retry/backoff and caching for the live feed | Time cut | `app.feed.fetch_live_quote` makes one attempt per symbol per poll with a 5s timeout and gives up — no retry, no exponential backoff, no short-lived cache to avoid re-hitting Yahoo for a value that hasn't changed. A transient failure on one poll is handled gracefully (that instrument just doesn't advance this round), but there's no attempt to recover faster than "wait for the next scheduled poll." |
 | `illiquid` as its own demo scenario | Time cut | `feed.INSTRUMENTS` already includes illiquid names and `session/` already has the per-tier liveness math (`EXPECTED_INTERVAL_MS`) that would exercise it, but there's no scenario that isolates an illiquid instrument's sparse-but-healthy ticking as its own demo moment. It's implicitly exercised (illiquid names sit in `normal`/`split_day` too, correctly reported `LIVE`), just not called out as a dedicated scenario. |
@@ -40,7 +40,12 @@ entries below point back to a specific non-goal named there.
   `valid_from`/`valid_to` table backing a symbol rename — the design this
   build follows (`docs/CLAUDE.md §4`, invariant I1) describes one, but this
   build doesn't actually implement or test it.
-- **`DEMO_NOW` is a fixed timestamp**, not a live clock. Session state and
-  tick age ("As of" column) are computed against `2026-09-07 11:00:00`
-  regardless of when the server actually started. Correct for a repeatable
-  demo, wrong for anything meant to run past that one scripted moment.
+- **`DEMO_NOW` is a fixed timestamp**, not a live clock — but only for the
+  three deterministic scenarios (`normal`, `split_day`, `feed_death`).
+  Session state and tick age ("As of" column) for those are computed
+  against `2026-09-07 11:00:00` regardless of when the server actually
+  started, correct for a repeatable demo. Live mode is the deliberate
+  exception: `main._now()` switches to a real `zoneinfo`-aware IST clock
+  whenever `_scenario == "live"`, exactly because a live tick's timestamp
+  is a real current moment and comparing it against a fixed 2026 date
+  would be meaningless (see `docs/ARCHITECTURE.md`'s "The live feed").
