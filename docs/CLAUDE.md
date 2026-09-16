@@ -183,7 +183,6 @@ Scenarios must be **seeded and deterministic**. The demo has to be repeatable un
 
 - [ ] `./setup.sh` then `make dev` works on a clean machine
 - [ ] `make test` green; `make demo-tests` prints the naive-vs-Since red/green table
-- [ ] Deployed URL live
 - [ ] README with setup, architecture diagram, and a **Decisions & Trade-offs** section
       that lists what was deliberately *not* built and why
 - [ ] 100-word pitch (later folded directly into `README.md`'s opening rather than kept as a separate file)

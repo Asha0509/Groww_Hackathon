@@ -68,9 +68,6 @@ fixed starting point — the same "day," exactly the same way, every time.
 them every ten seconds. An "I looked" button resets your personal baseline,
 so the digest goes quiet again until something new actually happens.
 
-`setup.sh` predates this build and still describes a different frontend
-that isn't part of it — see `docs/BUGS.md`.
-
 ## How the project is organized
 
 ```

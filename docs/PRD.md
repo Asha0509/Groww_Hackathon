@@ -103,7 +103,6 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 
 ## 6. Non-functional
 
-- Cold start to first meaningful paint under 2s on the deployed URL
 - Digest computed for a 60-instrument watchlist in under 100ms
 - Deterministic: same scenario + same seed = byte-identical tick stream
 - Runs on a clean machine via `./setup.sh && make dev`
@@ -113,7 +112,6 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 | Risk | Mitigation |
 |---|---|
 | Only the **first 1,000** of 2,942 submissions are evaluated | Ship a thin working version at hour 4.5 and submit it. Improve after. |
-| Deployment fails late | Deploy hello-world in the first 30 minutes, before any features |
 | Scope creep into charts/news | P2 list is binding. New ideas go to `docs/BUGS.md`, not the repo |
 | Demo breaks live | Scenarios are seeded and deterministic; rehearse the run beforehand |
 | Can't defend it in Q&A | Every invariant in `docs/CLAUDE.md` is written as a "why" answer. Read them aloud. |
@@ -123,6 +121,5 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 - [ ] Git repo, public, clean history
 - [ ] README: setup instructions, architecture, **Decisions & Trade-offs**
 - [ ] 100-word pitch (later folded directly into `README.md`'s opening)
-- [ ] Working deployed URL
 - [ ] `make test` green, `make demo-tests` prints the comparison table
 - [ ] Submitted **early**

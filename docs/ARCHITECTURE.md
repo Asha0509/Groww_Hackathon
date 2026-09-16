@@ -192,9 +192,9 @@ shared as N grows — not a production capacity number.
 
 ## Why a modular monolith, not microservices
 
-One process, one deploy, one thing to keep up during a live Q&A. The seams
+One process, one thing to keep up during a live Q&A. The seams
 (`feed` / `ingest` / `corpactions` / `session` / `digest`) are clean package
-boundaries already — splitting them into services later is a deployment
+boundaries already — splitting them into services later is an operational
 change, not a rewrite. Splitting *now*, for a few thousand instruments and a
 single demo user, would add network calls and partial-failure modes to a
 problem that doesn't have them yet. Complexity introduced before it's needed

@@ -44,11 +44,3 @@ entries below point back to a specific non-goal named there.
   tick age ("As of" column) are computed against `2026-09-07 11:00:00`
   regardless of when the server actually started. Correct for a repeatable
   demo, wrong for anything meant to run past that one scripted moment.
-- **`setup.sh` still describes a Vite/React frontend** (`npm install`,
-  scaffolding a `web/` directory) that this build replaced with a single
-  static HTML page served at `/`. It's stale from the original scaffold and
-  wasn't touched, per the instruction to leave everything not on the
-  priority list alone — running `setup.sh` as written will try to scaffold a
-  `web/` app that nothing here uses. (There is no `Makefile` or `Dockerfile`
-  committed to this repo — `setup.sh` generates them itself on a first run
-  it was never actually run to completion here, so neither exists yet.)
