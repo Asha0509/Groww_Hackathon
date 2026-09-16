@@ -94,6 +94,7 @@ docs/
 ├── BUGS.md              known limitations, stated plainly
 ├── RESULTS.md           the naive-vs-real comparison, explained
 ├── CLAUDE.md / PRD.md   the original planning documents, kept as written
+│                        (more on this under "Key design decisions" below)
 └── screenshots/         images embedded above and throughout this file
 
 requirements.txt        exact, pinned dependency versions
@@ -121,10 +122,10 @@ few pieces are made to prove, covered below.
 |---|---|---|
 | Python 3.11+ | the whole backend | the standard library alone covers most of what's needed here (SQLite, timezones) — no reason to reach further |
 | FastAPI | the web server and API | typed request handling and validation without writing that by hand |
-| Uvicorn | runs the server | the standard server FastAPI itself is built to run under |
+| Uvicorn | runs the server | comes with FastAPI |
 | SQLite, stdlib `sqlite3`, WAL mode | saving a person's position to disk | one process writing, many cheap reads — exactly what SQLite is for, with zero setup |
 | httpx | fetching real prices, and running the test client | already needed for testing FastAPI apps, so pulling real prices with it added nothing new to install |
-| pytest / pytest-asyncio | the test suite | plain and widely known — nothing fancier is needed at this size |
+| pytest / pytest-asyncio | the test suite | the standard choice |
 | Plain HTML, CSS, and JavaScript, no framework | the one page a browser renders | a single page with four buttons and two tables doesn't need a build step |
 
 ### How a price update actually flows through this
@@ -262,6 +263,14 @@ clock can be wrong or out of sync with every other device's. What can't be
 faked is a count that only ever goes up, assigned by the server itself —
 so two devices can't corrupt each other's sense of "what's new."
 
+**One process, one small database — not several of each.** A few thousand
+stocks and one person's traffic don't have the failure modes that splitting
+into separate services would be solving for; that complexity would be paid
+for a problem this system doesn't actually have yet. The same reasoning
+picked the database: one process writing, many cheap reads, is exactly the
+shape a single SQLite file is built for, with no setup cost at all. The
+full version of both arguments is in `docs/ARCHITECTURE.md`.
+
 **An unconfirmed price jump is flagged, not guessed at.** The check looks
 for a specific, recognizable shape — a clean ratio with no matching record
 — and deliberately doesn't try to catch everything. A jump that doesn't
@@ -279,6 +288,9 @@ the actual code against thousands of simulated stocks and a thousand
 simulated people showed that serving the thousandth person costs about the
 same, per person, as serving the first — because the expensive part of the
 work happens once, shared, rather than being repeated for every viewer.
+The demo itself runs against eight real stocks, for clarity; the scaling
+measurement was run separately, against thousands of simulated instruments,
+specifically to test that claim at a size the live demo can't hold.
 
 **Some things are deliberately left out**, and said so plainly rather than
 hidden: a cooldown so a flickering price near the threshold doesn't
