@@ -1,6 +1,6 @@
 """Corporate action adjustment (I3) — instruments are ISIN-keyed and the
 baseline self-corrects via a cumulative adjustment factor, never a backfill
-migration. See CLAUDE.md 'Lie 2 — the baseline decays'.
+migration. See docs/CLAUDE.md 'Lie 2 — the baseline decays'.
 """
 from dataclasses import dataclass
 

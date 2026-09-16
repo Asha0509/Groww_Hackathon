@@ -1,5 +1,10 @@
-"""Five-state session model (I5) with per-instrument liveness (I6).
-See CLAUDE.md 'Lie 3 — the baseline expires'.
+"""Four-state session model (I5) with per-instrument liveness (I6). The
+four states reported to a user are LIVE, CLOSED, HALTED, and DEGRADED.
+PRE_OPEN exists as a fifth, internal-only enum value — the calendar window
+before the market opens, distinct from CLOSED but treated identically
+everywhere a card or badge is rendered — see docs/LLD.md for exactly how
+it behaves.
+See docs/CLAUDE.md 'Lie 3 — the baseline expires'.
 """
 import datetime as dt
 from enum import Enum

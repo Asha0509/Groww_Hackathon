@@ -1,5 +1,5 @@
 """Watermark diff + digest budget (I2, I10). The watermark is the personal
-baseline: whenever this user last actually looked. See CLAUDE.md
+baseline: whenever this user last actually looked. See docs/CLAUDE.md
 'Lie 1 — the baseline is not personal'.
 """
 from dataclasses import dataclass

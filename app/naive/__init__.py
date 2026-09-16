@@ -1,6 +1,6 @@
 """The naive baseline — deliberately wrong. Kept building forever as a
 deliverable: this is what a watchlist looks like without I3/I5/I6.
-Raw price vs raw watermark. One global staleness timeout. See CLAUDE.md
+Raw price vs raw watermark. One global staleness timeout. See docs/CLAUDE.md
 'The three lies'.
 """
 
