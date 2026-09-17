@@ -222,7 +222,8 @@ app/
 tests/     one file per module above, proving its rules hold, plus test_main.py for the HTTP layer
 scripts/
 ├── compare_naive.py     naive vs. Since, side by side, on the same data
-└── benchmark_fanout.py  the cost of serving many people vs. one
+├── benchmark_fanout.py  the cost of serving many people vs. one
+└── screenshots.py       rebuilds this file's screenshots after a UI change
 
 docs/
 ├── ARCHITECTURE.md     the big-picture design and why each call was made
