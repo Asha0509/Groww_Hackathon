@@ -55,11 +55,6 @@
   .manage input { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 6px; width: 9rem; }
   .manage .msg { color: #a11d1d; }
   button.rm { padding: 0.1rem 0.45rem; font-size: 0.78rem; color: #a11d1d; }
-  .proof h3 { font-size: 0.88rem; margin: 1.1rem 0 0.3rem; }
-  .proof ul { margin: 0.2rem 0 0.6rem; padding-left: 1.2rem; font-size: 0.85rem; color: #333; }
-  .proof li { margin-bottom: 0.2rem; }
-  .proof .src { color: #888; font-size: 0.78rem; }
-  .proof code { background: #f4f4f4; padding: 0.05rem 0.25rem; border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -67,8 +62,7 @@
   <p class="tagline">A watchlist is a diff, not a dashboard. This shows what changed since you last looked — and nothing else.</p>
   <nav class="anchors">
     <a href="#digest-section">Digest</a> ·
-    <a href="#watchlist-section">Watchlist</a> ·
-    <a href="#proof-section">Engineering proof</a>
+    <a href="#watchlist-section">Watchlist</a>
   </nav>
 
   <div class="toolbar">
@@ -120,38 +114,6 @@
       <div><dt>HALTED</dt><dd>circuit hit — frozen is the signal</dd></div>
       <div><dt>DEGRADED</dt><dd>market open, ticks expected, none arriving — our fault</dd></div>
     </dl>
-  </section>
-
-  <section id="proof-section" class="proof">
-    <h2>Engineering proof</h2>
-    <p class="section-note">Measured, not claimed. Every number below comes from a script in this repo.</p>
-
-    <h3>Naive vs. Since</h3>
-    <p class="src">Source: <code>docs/RESULTS.md</code>, reproducible with <code>python scripts/compare_naive.py</code></p>
-    <ul>
-      <li><strong>split_day</strong> — naive says RELIANCE <strong>-90.0%</strong> (false alarm); Since says RELIANCE <strong>-0.1%</strong> adjusted, 1:10 split detected, no meaningful change.</li>
-      <li><strong>weekend</strong> — naive says RELIANCE <strong>STALE</strong> (last tick 20h ago, past a 30s global timeout); Since says RELIANCE <strong>CLOSED</strong> (market closed, not stale).</li>
-    </ul>
-
-    <h3>Fan-out benchmark</h3>
-    <p class="src">Source: <code>docs/ARCHITECTURE.md</code>, reproducible with <code>python scripts/benchmark_fanout.py</code> — 3,000 synthetic instruments, 1,000 simulated users</p>
-    <ul>
-      <li>ingest, one batch, all 3,000 instruments: <strong>18.30 ms</strong> (paid once)</li>
-      <li>digest for 1 user: <strong>8.281 ms</strong></li>
-      <li>digest for 1,000 users (total): <strong>7724.60 ms</strong></li>
-      <li>digest for 1,000 users (avg/user): <strong>7.7246 ms</strong></li>
-      <li>per-user cost ratio (N-user avg / 1-user): <strong>0.93x</strong> — serving the 1,000th user costs about the same per-user as serving the 1st.</li>
-    </ul>
-
-    <h3>Concurrency</h3>
-    <ul>
-      <li>Stress-tested with 2 writer threads × 25 scenario reloads running concurrently against 4 reader threads × 25 reads — <strong>zero torn reads observed</strong>. See <code>tests/test_main.py</code>.</li>
-    </ul>
-
-    <h3>Test suite</h3>
-    <ul>
-      <li><code>pytest -q</code> → <strong>42 passed</strong>.</li>
-    </ul>
   </section>
 
 <script>

@@ -192,8 +192,6 @@ output.
 - [`scripts/benchmark_fanout.py`](scripts/benchmark_fanout.py)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): "Why per-instrument
   fan-out, not per-user computation"
-- [`app/static/index.html`](app/static/index.html): the "Engineering
-  proof" section at the bottom of the page
 
 ### "Where to keep things simple vs. add complexity"
 
