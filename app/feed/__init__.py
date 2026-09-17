@@ -148,16 +148,20 @@ def fetch_live_quote(yahoo_symbol: str) -> tuple[float, float, int] | None:
         return None
 
 
-def fetch_live_ticks(next_seq: dict[str, int]) -> tuple[dict[str, Tick], list[str]]:
+def fetch_live_ticks(next_seq: dict[str, int], symbols: dict[str, str] | None = None) -> tuple[dict[str, Tick], list[str]]:
     """Polls every instrument once. `next_seq` maps isin -> the seq to use
     if this poll succeeds (the caller owns sequencing, same as it would for
-    any other vendor). Returns (ticks_by_isin, failed_isins) — a partial
-    result on a partial outage, never an all-or-nothing failure for seven
-    healthy symbols because one is down.
+    any other vendor). `symbols` maps isin -> Yahoo ticker; defaults to
+    `LIVE_SYMBOLS` (the curated 8) so every existing caller is unaffected —
+    a caller managing a personal watchlist (curated instruments plus their
+    own additions) passes its own map instead. Returns (ticks_by_isin,
+    failed_isins) — a partial result on a partial outage, never an
+    all-or-nothing failure for seven healthy symbols because one is down.
     """
+    symbols = LIVE_SYMBOLS if symbols is None else symbols
     ticks: dict[str, Tick] = {}
     failed: list[str] = []
-    for isin, symbol in LIVE_SYMBOLS.items():
+    for isin, symbol in symbols.items():
         quote = fetch_live_quote(symbol)
         if quote is None:
             failed.append(isin)

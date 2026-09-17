@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 
 from app.digest import Watermark
-from app.models import InstrumentState
+from app.models import Instrument, InstrumentState
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS instrument_state (
@@ -29,6 +29,26 @@ CREATE TABLE IF NOT EXISTS watermarks (
     last_seen_price_raw  REAL NOT NULL,
     last_seen_cum_factor REAL NOT NULL,
     PRIMARY KEY (user_id, isin)
+);
+
+-- A user's own additions to the live watchlist. Keyed by the ticker symbol
+-- itself, not a real ISIN -- there's no ISIN lookup available for an
+-- arbitrary symbol here, unlike the curated 8 (app.feed.INSTRUMENTS), which
+-- really are ISIN-keyed. A disclosed simplification, not an oversight.
+CREATE TABLE IF NOT EXISTS custom_instruments (
+    isin           TEXT PRIMARY KEY,
+    symbol         TEXT NOT NULL,
+    name           TEXT NOT NULL,
+    yahoo_symbol   TEXT NOT NULL,
+    liquidity_tier TEXT NOT NULL
+);
+
+-- Curated-8 instruments a user has removed while in live mode. Never
+-- deleted from app.feed.INSTRUMENTS itself -- that list stays exactly as
+-- the three scripted scenarios need it -- this table just says "don't show
+-- this one in live mode."
+CREATE TABLE IF NOT EXISTS excluded_instruments (
+    isin TEXT PRIMARY KEY
 );
 """
 
@@ -98,3 +118,43 @@ def load_watermarks(conn: sqlite3.Connection) -> dict[tuple[str, str], Watermark
         "SELECT user_id, isin, last_seen_seq, last_seen_price_raw, last_seen_cum_factor FROM watermarks"
     ).fetchall()
     return {(user_id, isin): Watermark(user_id, isin, seq, price, factor) for user_id, isin, seq, price, factor in rows}
+
+
+def save_custom_instrument(conn: sqlite3.Connection, inst: Instrument, yahoo_symbol: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO custom_instruments (isin, symbol, name, yahoo_symbol, liquidity_tier)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(isin) DO UPDATE SET
+            symbol=excluded.symbol,
+            name=excluded.name,
+            yahoo_symbol=excluded.yahoo_symbol,
+            liquidity_tier=excluded.liquidity_tier
+        """,
+        (inst.isin, inst.symbol, inst.name, yahoo_symbol, inst.liquidity_tier),
+    )
+    conn.commit()
+
+
+def load_custom_instruments(conn: sqlite3.Connection) -> dict[str, tuple[Instrument, str]]:
+    """Returns isin -> (Instrument, yahoo_symbol)."""
+    rows = conn.execute("SELECT isin, symbol, name, yahoo_symbol, liquidity_tier FROM custom_instruments").fetchall()
+    return {
+        isin: (Instrument(isin=isin, symbol=symbol, name=name, liquidity_tier=liquidity_tier), yahoo_symbol)
+        for isin, symbol, name, yahoo_symbol, liquidity_tier in rows
+    }
+
+
+def delete_custom_instrument(conn: sqlite3.Connection, isin: str) -> None:
+    conn.execute("DELETE FROM custom_instruments WHERE isin = ?", (isin,))
+    conn.commit()
+
+
+def save_excluded_isin(conn: sqlite3.Connection, isin: str) -> None:
+    conn.execute("INSERT OR IGNORE INTO excluded_instruments (isin) VALUES (?)", (isin,))
+    conn.commit()
+
+
+def load_excluded_isins(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute("SELECT isin FROM excluded_instruments").fetchall()
+    return {isin for (isin,) in rows}

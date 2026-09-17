@@ -160,3 +160,96 @@ def test_persisted_watermark_survives_the_startup_replay(tmp_path):
     assert wm.last_seen_seq == 5  # not rewound to the fresh seq=1 reseed
 
     client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def _fake_quote(_symbol):
+    return 100.0, 1757222400.0, 1234
+
+
+def _enter_live(monkeypatch):
+    """Puts the app in live mode without touching the network — the same path
+    POST /api/scenario/live takes, with the vendor adapter stubbed out."""
+    monkeypatch.setattr(m, "fetch_live_quote", _fake_quote)
+    monkeypatch.setattr(m, "fetch_live_ticks", lambda next_seq, symbols=None: (
+        {isin: m.Tick(isin, next_seq[isin], 1757222400.0, 100.0, 1234) for isin in (symbols or {})},
+        [],
+    ))
+    client.post("/api/scenario/live")
+
+
+def test_watchlist_management_is_rejected_outside_live_mode():
+    """The three scripted scenarios are a pinned rehearsal set — letting a
+    user add or remove instruments mid-replay would break exactly the
+    determinism they exist to provide."""
+    client.post("/api/scenario/split_day")
+    add = client.post("/api/watchlist/add", params={"symbol": "TCS"})
+    remove = client.post("/api/watchlist/remove", params={"isin": "INE002A01018"})
+    assert add.status_code == 409
+    assert remove.status_code == 409
+    assert "switch to Live" in add.json()["detail"]
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_add_rejects_a_symbol_the_vendor_does_not_recognise(monkeypatch):
+    _enter_live(monkeypatch)
+    monkeypatch.setattr(m, "fetch_live_quote", lambda _s: None)
+    resp = client.post("/api/watchlist/add", params={"symbol": "NOTAREALTICKER"})
+    assert resp.status_code == 400
+    assert "no live quote" in resp.json()["detail"]
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_add_then_remove_a_custom_instrument_in_live_mode(monkeypatch):
+    _enter_live(monkeypatch)
+    added = client.post("/api/watchlist/add", params={"symbol": "tcs"})
+    assert added.status_code == 200
+    assert added.json()["added"] == "TCS"  # symbol-as-isin, see app/db.py schema note
+    assert m._custom_live_symbols["TCS"] == "TCS.NS"
+
+    isins = [r["isin"] for r in client.get("/api/watchlist").json()["watchlist"]]
+    assert "TCS" in isins
+
+    assert client.post("/api/watchlist/remove", params={"isin": "TCS"}).status_code == 200
+    isins = [r["isin"] for r in client.get("/api/watchlist").json()["watchlist"]]
+    assert "TCS" not in isins
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_removing_a_curated_instrument_never_affects_a_scripted_scenario(monkeypatch):
+    """The curated 8 are excluded, not deleted — app.feed.INSTRUMENTS is what
+    the deterministic replays walk, so it must come back intact."""
+    _enter_live(monkeypatch)
+    assert client.post("/api/watchlist/remove", params={"isin": "INE040A01034"}).status_code == 200
+    live_isins = [r["isin"] for r in client.get("/api/watchlist").json()["watchlist"]]
+    assert "INE040A01034" not in live_isins
+
+    client.post("/api/scenario/feed_death")
+    replay_isins = [r["isin"] for r in client.get("/api/watchlist").json()["watchlist"]]
+    assert len(replay_isins) == 8
+    assert "INE040A01034" in replay_isins
+
+    m._excluded_isins.clear()
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_remove_rejects_an_unknown_instrument(monkeypatch):
+    _enter_live(monkeypatch)
+    assert client.post("/api/watchlist/remove", params={"isin": "NOPE"}).status_code == 404
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_watchlist_exposes_the_watermark_itself(monkeypatch):
+    """The row has to be able to show "your baseline: seq X, price Y" — that
+    diff is the whole product, so the numbers behind it aren't hidden."""
+    client.post("/api/scenario/normal")
+    client.post("/api/watermark/ack")
+    row = next(r for r in client.get("/api/watchlist").json()["watchlist"] if r["isin"] == "INE002A01018")
+    assert row["last_seen_seq"] == row["last_seq"]
+    assert row["last_seen_price_raw"] == row["ltp"]
+    assert row["last_seen_cum_factor"] == row["cum_factor"]
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
