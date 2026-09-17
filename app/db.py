@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS custom_instruments (
 
 -- Curated-8 instruments a user has removed while in live mode. Never
 -- deleted from app.feed.INSTRUMENTS itself -- that list stays exactly as
--- the three scripted scenarios need it -- this table just says "don't show
+-- the scripted scenarios need it -- this table just says "don't show
 -- this one in live mode."
 CREATE TABLE IF NOT EXISTS excluded_instruments (
     isin TEXT PRIMARY KEY

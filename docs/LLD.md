@@ -118,15 +118,15 @@ class SessionState(str, Enum):
     DEGRADED = "DEGRADED"
 ```
 
-Four states are *reported* to a user — `README.md` and the UI's own legend
-both describe `LIVE`/`CLOSED`/`HALTED`/`DEGRADED`. `PRE_OPEN` exists as a
-fifth internal enum value — the calendar window between midnight and
-market open, distinct from `CLOSED` (the rest of the day and weekends) —
-but it behaves identically to `CLOSED` everywhere a card or a badge is
-rendered: neither is ever reported as stale. It's kept separate in the
+All five states can reach a user: `instrument_session_state` returns the
+calendar state verbatim whenever the market isn't in continuous trading,
+so `PRE_OPEN` surfaces in `GET /api/watchlist` and has its own badge in
+the UI legend. It is the least interesting of the five — the calendar
+window between midnight and market open, distinct from `CLOSED` (the rest
+of the day and weekends) — because it behaves identically to `CLOSED` in
+the way that matters: neither is ever reported as stale. It's kept separate in the
 enum because "the market hasn't opened yet today" and "the market is shut"
-are different facts, even though this build's UI doesn't currently
-distinguish them in the legend.
+are different facts, and the UI names both rather than collapsing them.
 
 No state is stored — `instrument_session_state` is a pure function computed
 fresh on every read from two inputs: a `datetime` (`docs/ARCHITECTURE.md`'s

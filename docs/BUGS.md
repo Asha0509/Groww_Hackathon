@@ -9,6 +9,7 @@ entries below point back to a specific non-goal named there.
 
 | What | How it was closed |
 |---|---|
+| No way to create or manage a watchlist | The brief's first minimum bar, and until this pass the app only ever showed a fixed eight. `POST /api/watchlist/add` (by symbol) and `POST /api/watchlist/remove` (by isin) now exist, backed by two new SQLite tables (`custom_instruments`, `excluded_instruments`) so both survive a restart — verified by an actual two-process restart, not just a page refresh. Adding validates the symbol and fetches its opening price in the same `fetch_live_quote` call (a symbol Yahoo doesn't recognise is a `400`, not a half-added row), and that network call happens outside the shared lock with the scenario re-checked afterwards, the same shape `/api/live/refresh` already used. `fetch_live_ticks` now takes an optional symbols map so the 10s poll covers additions too, defaulting to `LIVE_SYMBOLS` so no existing caller changed. **Deliberately scoped to live mode:** both endpoints return `409` under `normal`/`split_day`/`feed_death`, because those three are a pinned rehearsal set that has to replay identically to be worth anything as a demo. `app.feed.INSTRUMENTS` is never mutated — removing one of the curated eight records an exclusion that only live mode honours, so a scripted replay still walks all eight (`tests/test_main.py::test_removing_a_curated_instrument_never_affects_a_scripted_scenario`). See the shortcut list below for the symbol-as-ISIN keying this accepts. |
 | No input validation on `POST /api/watermark/ack?isin=` | Passing an `isin` that isn't a real instrument used to raise an unhandled `KeyError` — a raw 500, not a clean error — because nothing checked the isin against `_states` before indexing it. Found during a deliberate pre-panel pass ("does every endpoint return a clean error for bad input"), reproduced first, fixed with a plain membership check that now raises a proper `404`. `tests/test_main.py::test_unknown_isin_on_ack_returns_404_not_a_crash` pins it; `test_live_refresh_outside_live_mode_returns_409_not_a_crash` covers the one other endpoint with meaningful bad-state input (`/api/live/refresh` outside live mode), which was already clean. `/api/scenario/{name}` was already clean too (an unknown name is just a dict-membership check away from a 404). |
 | No real market-data vendor | Live prices for all eight instruments now come from Yahoo Finance's public chart endpoint (`app/feed.fetch_live_quote`), reached via a `POST /api/scenario/live` baseline load and repeated `POST /api/live/refresh` polls — proven against the real endpoint, not mocked, including a real activation, a real incremental refresh, and a real 409 when refreshing outside live mode. `docs/ARCHITECTURE.md`'s "The live feed" section has the full detail: which endpoint, why it (two alternatives tried first didn't work), and a real IST-timezone bug this integration caught and fixed by actually running it (session-state math needs real India time, not the server's own local clock — this sandbox runs UTC). `ingest`/`corpactions`/`session`/`digest` needed zero changes; `main._apply_one_tick` is the one ingest path both a scenario replay and a live poll go through, so I9's unconfirmed-corporate-action check runs identically on live data. **What this doesn't do:** the deterministic scenarios (`normal`, `split_day`, `feed_death`) still drive the graded demo's core walkthrough and `scripts/compare_naive.py` — on purpose, per the project's own reproducibility argument, just now extended rather than reversed (see `README.md`). Live mode has no test coverage against the real network (mocked in `tests/test_feed.py` instead, so the suite stays deterministic and doesn't depend on Yahoo being reachable during grading) — it's been run and read by hand, not asserted on in CI. |
 | No lock around shared mutable state | `app/main.py` now guards every read (`watchlist`, `digest`, `ack`) and the state-swap at the end of `_load_scenario` with a single `threading.Lock`. The critical section is kept short on purpose: the expensive tick-replay loop in `_load_scenario` builds entirely fresh local objects untouched by any other request, and only the final five-name reassignment happens under the lock — so this doesn't serialize `/` or `/healthz`, and barely serializes anything else in practice. `tests/test_main.py::test_concurrent_scenario_reload_and_reads_stay_internally_consistent` hammers a scenario reload against concurrent reads (2 writer threads × 25 reloads, 4 reader threads × 25 reads) and asserts every observed response is self-consistent. **Honest caveat on the test itself**: I also ran the identical stress test with the lock replaced by a no-op, to confirm the test would actually catch the bug it's meant to catch — it didn't reproduce a single torn read even unlocked, across 3×60 reloads and 6×60 reads. The race is real (a Python tuple-unpack across five global names is not a language-guaranteed atomic operation across threads — nothing stops a thread switch between two of the five `STORE_GLOBAL`s), but the window is small enough relative to HTTP request overhead that black-box stress testing didn't reproduce it either way. The lock is correct and cheap regardless of whether this particular test can prove the bug existed; correctness shouldn't depend on a race being lucky. This is a stress test that the *fixed* code holds up, not a proof the *unfixed* code was observably broken. **What this doesn't cover**: it's an in-process lock — it says nothing about two separate processes (e.g. a second uvicorn worker) sharing state, which real persistence (see below) would handle via the database's own write-serialization instead. |
@@ -35,13 +36,26 @@ entries below point back to a specific non-goal named there.
   watchlist, so the O(instruments) vs. O(users × instruments) claim in
   `ARCHITECTURE.md` is a shape the code supports, not a behavior the demo
   exercises.
-- **A ticker-rename table doesn't exist.** Instruments are keyed by ISIN
-  everywhere in the code, which is the invariant that matters, but there's no
-  `valid_from`/`valid_to` table backing a symbol rename — the design this
-  build follows (`docs/CLAUDE.md §4`, invariant I1) describes one, but this
-  build doesn't actually implement or test it.
+- **A ticker-rename table doesn't exist.** The curated eight are keyed by
+  ISIN everywhere in the code, which is the invariant that matters, but
+  there's no `valid_from`/`valid_to` table backing a symbol rename — the
+  design this build follows (`docs/CLAUDE.md §4`, invariant I1) describes
+  one, but this build doesn't actually implement or test it.
+- **A watchlist instrument a user adds is keyed by its ticker symbol, not a
+  real ISIN.** `POST /api/watchlist/add` takes a symbol, and there's no ISIN
+  lookup available for an arbitrary user-typed ticker, so the symbol itself
+  becomes the key in `custom_instruments` and in `_states`. The consequences
+  are real and worth naming: a custom addition would not survive the very
+  ticker rename that invariant I1 exists to handle, and if a user adds a
+  symbol that is *already* one of the curated eight, they get a second row
+  keyed by symbol rather than a match against the existing ISIN. The curated
+  eight themselves are unaffected. This is a disclosed simplification, noted
+  in the `app/db.py` schema comment and in `README.md`, not an oversight —
+  fixing it properly needs a symbol→ISIN reference source this build doesn't
+  have.
 - **`DEMO_NOW` is a fixed timestamp**, not a live clock — but only for the
-  three deterministic scenarios (`normal`, `split_day`, `feed_death`).
+  four deterministic scenarios (`normal`, `split_day`, `feed_death`,
+  `big_move`).
   Session state and tick age ("As of" column) for those are computed
   against `2026-09-07 11:00:00` regardless of when the server actually
   started, correct for a repeatable demo. Live mode is the deliberate

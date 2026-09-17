@@ -7,7 +7,7 @@ and the real one (`app/corpactions`, `app/session`):
 ```
 SCENARIO    SYSTEM  VERDICT                 DETAIL
 split_day   naive   ✗ FALSE ALARM           RELIANCE -90.0% (screaming, wrong)
-split_day   since   ✓ CORRECT               RELIANCE +0.2% adjusted, 1:10 split detected, no meaningful change
+split_day   since   ✓ CORRECT               RELIANCE -0.1% adjusted, 1:10 split detected, no meaningful change
 weekend     naive   ✗ FALSE ALARM           RELIANCE STALE (last tick 20h ago, >30s global timeout)
 weekend     since   ✓ CORRECT               RELIANCE CLOSED (market closed, not stale)
 ```
@@ -23,7 +23,9 @@ first precisely because a 20-sigma move looks the most important. It is the
 opposite: the shareholder's position is worth exactly what it was worth
 before, just denominated in ten times as many shares. Since carries a
 cumulative adjustment factor per ISIN (`corpactions.pct_change`) and reports
-**+0.2%**, the real (tiny) intraday move, with the split named. A user who
+**-0.1%**, the real (tiny) intraday move, with the split named — the same
+number the running app shows on that row, because the script now seeds its
+watermark at seq 1 exactly as `app.main._load_scenario` does. A user who
 trusts the naive number might panic-sell into a split with no actual loss —
 this is the exact failure `docs/CLAUDE.md` calls "the cleverer the scoring, the
 louder the lie."

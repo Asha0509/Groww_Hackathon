@@ -178,7 +178,7 @@ def _enter_live(monkeypatch):
 
 
 def test_watchlist_management_is_rejected_outside_live_mode():
-    """The three scripted scenarios are a pinned rehearsal set — letting a
+    """The scripted scenarios are a pinned rehearsal set — letting a
     user add or remove instruments mid-replay would break exactly the
     determinism they exist to provide."""
     client.post("/api/scenario/split_day")
@@ -251,5 +251,36 @@ def test_watchlist_exposes_the_watermark_itself(monkeypatch):
     assert row["last_seen_seq"] == row["last_seq"]
     assert row["last_seen_price_raw"] == row["ltp"]
     assert row["last_seen_cum_factor"] == row["cum_factor"]
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_big_move_fires_exactly_one_move_card():
+    """`normal`'s walk stays inside ±1%, so nothing in it clears
+    MOVE_THRESHOLD and the digest is correctly silent — which left the MOVE
+    card itself with no scenario that exercises it end-to-end. This is that
+    scenario: one real move, one card, everything else still quiet.
+    """
+    client.post("/api/scenario/big_move")
+    cards = client.get("/api/digest").json()["cards"]
+    assert len(cards) == 1, cards
+
+    card = cards[0]
+    assert card["symbol"] == "INFY"
+    assert card["kind"] == "MOVE"  # an ordinary move, not UNVERIFIED_CORPORATE_ACTION
+    assert card["pct_change"] == 3.5
+
+    row = next(r for r in client.get("/api/watchlist").json()["watchlist"] if r["symbol"] == "INFY")
+    assert row["last_seen_price_raw"] == 1476.51  # the seq-1 baseline the move is sized from
+    assert row["ltp"] == 1528.19
+    assert row["ca_note"] is None  # no corporate action involved
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_big_move_leaves_every_other_instrument_silent():
+    client.post("/api/scenario/big_move")
+    movers = {c["symbol"] for c in client.get("/api/digest").json()["cards"]}
+    assert movers == {"INFY"}
 
     client.post("/api/scenario/normal")  # leave state clean for other tests

@@ -79,7 +79,7 @@ Add a real NSE symbol, or remove one, while in Live mode. Adding calls
 Yahoo's live quote endpoint to both validate the symbol and get its
 starting price in one step; removing a custom addition deletes it, and
 removing one of the curated 8 records that exclusion without touching the
-underlying list the three scripted demo scenarios rely on. Both survive a
+underlying list the four scripted demo scenarios rely on. Both survive a
 restart.
 
 - [`app/main.py`](app/main.py): `watchlist_add`, `watchlist_remove`,
@@ -90,8 +90,9 @@ restart.
 - [`app/static/index.html`](app/static/index.html): the add field and
   per-row remove button, shown only in Live mode
 
-This is deliberately scoped to Live mode. The three scripted scenarios
-(`normal`, `split_day`, `feed_death`) are a pinned rehearsal set: they have
+This is deliberately scoped to Live mode. The four scripted scenarios
+(`normal`, `split_day`, `feed_death`, `big_move`) are a pinned rehearsal
+set: they have
 to replay identically every time to stay a reliable demo, so letting
 someone add or remove an instrument mid-replay would work against the one
 property that makes them useful. A personal watchlist, by contrast, is
@@ -277,11 +278,11 @@ because the bigger a move looks, the more urgent it seems. That's exactly
 backwards: the shareholder's position is worth what it was worth the day
 before, just split across ten times as many shares. Since tracks a
 cumulative adjustment factor per instrument and reports the real move,
-**+0.2%**, with the split named plainly next to it. The Split Day button in
+**-0.1%**, essentially flat, with the split named plainly next to it. The Split Day button in
 the app now shows both numbers side by side on the affected row, so the
 contrast doesn't require doing the naive math in your head.
 
-![Reliance's 1:10 split shown as a labeled note on its watchlist row, with the price before and after the split both visible](docs/screenshots/corporate_action.png)
+![Reliance's watchlist row on Split Day: a labeled 1:10 split note with the pre- and post-split price, then the contrast line reading "Naive: -90.0% (struck through) - Since: -0.1%", then the row's own watermark](docs/screenshots/corporate_action.png)
 
 ### The staleness lie
 
@@ -295,18 +296,21 @@ needed. Since asks a different question first: is the market even open?
 *while the market is open* is ever treated as the system's own fault, and
 shown as **degraded**, not stale.
 
-![HDFC Bank's row marked DEGRADED with its actual silence duration, while every other instrument keeps ticking normally](docs/screenshots/degraded_feed.png)
+![Feed Death: a red DEGRADED digest card for HDFC Bank naming its 60s silence, and the matching watchlist row highlighted in red with an as-of time a minute behind every other instrument, which all still read LIVE](docs/screenshots/degraded_feed.png)
 
 ### The personal-baseline lie
 
 "What's new" depends on when *you* last looked, not a shared clock. Since
 tracks that per person, per instrument, as a watermark that only ever moves
 forward. Pressing "I looked" moves it to now, and the digest goes quiet
-until something genuinely new happens after that point. It now also says
-out loud what it just cleared, instead of the cards silently disappearing.
+until something genuinely new happens after that point. It also says out
+loud what it just cleared, instead of the cards silently disappearing. The
+Big Move button is the scenario that exercises this end to end: INFY moves
++3.5%, one card appears, "I looked" clears it, and every row's baseline
+advances to the tick you just acknowledged.
 
-![Before: a digest card showing Reliance up 3.11% since the baseline. After: the same page after pressing "I looked", the card gone](docs/screenshots/before_i_looked.png)
-![The watchlist after acknowledging the move](docs/screenshots/after_i_looked.png)
+![Before: the Big Move scenario, with a single digest card reading "INFY - MOVE +3.5%" and every watchlist row showing a seq-1 baseline](docs/screenshots/before_i_looked.png)
+![After: the same page after pressing "I looked" - the digest reads "Nothing worth telling you. That is the point.", a green line confirms "Cleared: INFY +3.5% - baseline moved to now.", and every row's baseline has advanced to seq 10](docs/screenshots/after_i_looked.png)
 
 Full walkthrough of both scripted comparisons, printed and explained line
 by line, is in [`docs/RESULTS.md`](docs/RESULTS.md).
@@ -343,8 +347,9 @@ Measure the cost of serving many people vs. one:
 .venv/bin/python scripts/benchmark_fanout.py
 ```
 
-The page has four scenario buttons. Normal, Split Day, and Feed Death each
-replay a scripted, second-by-second session from a fixed starting point:
+The page has five scenario buttons. Normal, Split Day, Feed Death and Big
+Move each replay a scripted, second-by-second session from a fixed
+starting point:
 the same "day," exactly the same way, every run, on purpose, so a real
 stock split or feed outage can be demonstrated on command rather than
 waited for. Live pulls real current prices for eight Indian stocks and

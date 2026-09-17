@@ -41,11 +41,16 @@ state = InstrumentState(isin=RELIANCE)
 watermark_price = watermark_cum_factor = None
 
 for t in [t for t in ticks if t.isin == RELIANCE]:
-    if t.seq == 5:
-        watermark_price, watermark_cum_factor = state.ltp_raw, state.cum_factor
     apply_tick(state, t)
     for a in [a for a in actions if a.isin == t.isin and a.ex_seq == t.seq]:
         apply_corporate_action(state, a)
+    if t.seq == 1:
+        # The same rule app.main._load_scenario uses: the baseline is the
+        # state just after the session's first tick. Seeding it at seq 5
+        # instead, right before the split, measured a narrower window than
+        # the shipped product ever measures — a more flattering number for
+        # a comparison whose whole point is to be honest.
+        watermark_price, watermark_cum_factor = state.ltp_raw, state.cum_factor
 
 naive_change = naive.naive_pct_change(state.ltp_raw, watermark_price)
 since_change = pct_change(state.ltp_raw, watermark_price, state.cum_factor, watermark_cum_factor)

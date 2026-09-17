@@ -2,7 +2,7 @@
 
 This describes the system as it actually runs today. It's a single-process
 FastAPI application: the same module boundaries below hold the full set of
-invariants, backed by real SQLite persistence for the two tables that
+invariants, backed by real SQLite persistence for the four tables that
 actually need to survive a restart. See `BUGS.md` for exactly what's still
 in-memory-only and why. For the exact fields, every distinct outcome, and
 the test that pins each one down, see `LLD.md` — this document is the
@@ -15,17 +15,19 @@ app/
 ├─ models.py       Instrument, Tick, InstrumentState — shared plain dataclasses
 ├─ feed/           two vendor adapters behind one Tick shape: a real one
 │                  (Yahoo Finance) for live prices, and a seeded deterministic
-│                  rehearsal tool (normal, split_day, feed_death) for events
-│                  that can't be scheduled to happen live on demand
+│                  rehearsal tool (normal, split_day, feed_death, big_move)
+│                  for events that can't be scheduled to happen live on demand
 ├─ ingest/         ordering guard — applies a tick only if seq > last_seq (I4)
 ├─ corpactions/    cumulative adjustment factor, ISIN-keyed baseline math (I3);
 │                  clean-ratio-gap detection for unconfirmed corporate actions (I9)
-├─ session/        four-state session model + per-instrument liveness (I5, I6)
+├─ session/        five-state session model + per-instrument liveness (I5, I6)
 ├─ digest/         watermark store + diff + budget cap (I2, I10)
-├─ db.py           SQLite (WAL) persistence for instrument_state and watermarks
+├─ db.py           SQLite (WAL) persistence for instrument state, watermarks,
+│                  and a user's own watchlist additions/exclusions
 ├─ naive/          deliberately naive baseline, kept wrong on purpose
 ├─ static/         single HTML page, plain CSS, no build step
-└─ main.py         FastAPI app: wires the above into scenario/watchlist/digest endpoints
+└─ main.py         FastAPI app: wires the above into the scenario, watchlist,
+                   digest and watchlist-management endpoints
 ```
 
 Nothing here imports from `app/main.py`. Every package is importable and unit-testable
@@ -34,19 +36,35 @@ directly instead of through HTTP.
 
 ## Data model
 
-Two tables are real, live SQLite (`app/db.py`), in WAL mode:
+Four tables are real, live SQLite (`app/db.py`), in WAL mode:
 
 ```
 instrument_state   isin PK, last_seq, last_exchange_ts, ltp_raw,
                    cum_factor, volume_today, halted                -- I3, I4
 watermarks         user_id, isin, last_seen_seq, last_seen_price_raw,
                    last_seen_cum_factor                             -- I2, I3
+custom_instruments isin PK, symbol, name, yahoo_symbol,
+                   liquidity_tier          -- a user's own live-mode additions
+excluded_instruments
+                   isin PK                 -- curated instruments a user removed
 ```
 
-The rest of the originally-envisioned schema — `instruments`, `symbol_aliases`
-(I1), `corporate_actions` with a `CONFIRMED`/`UNVERIFIED` status column,
-`signals`, `suppressions` (I10) — stays as in-memory shapes only; see
-`docs/BUGS.md` for exactly what each of those still doesn't do.
+The last two exist so watchlist management survives a restart. They sit
+*alongside* `app.feed.INSTRUMENTS` rather than replacing it: that list is
+what the four scripted scenarios replay against, so it is never mutated,
+and a removal is recorded as an exclusion instead of a delete. Only live
+mode reads either table — see `main._current_instruments`. A custom
+addition is keyed by its ticker symbol rather than a real ISIN, because
+there is no ISIN lookup for an arbitrary user-typed symbol; the curated
+eight stay ISIN-keyed (`docs/BUGS.md` lists this as a disclosed shortcut).
+
+The rest of the originally-envisioned schema — a full `instruments` table,
+`symbol_aliases` (I1), `corporate_actions` with a `CONFIRMED`/`UNVERIFIED`
+status column, `signals`, `suppressions` (I10) — stays as in-memory shapes
+only; see `docs/BUGS.md` for exactly what each of those still doesn't do.
+`custom_instruments` above is the one partial exception: it persists the
+instruments a user added, but the curated eight still live in code
+(`app.feed.INSTRUMENTS`), not in a row.
 
 In the running process, every module keeps working against the same plain
 dataclasses it always has (`app/models.py`) — persistence is a side effect
@@ -125,8 +143,10 @@ same test coverage, as the scripted one.
    (`_degraded_notes()`, per I5/I6) and reads the in-memory `_states`
    (already caught up to every tick applied by the active scenario or live
    poll), `_watermarks`, and `_unverified` (per I9).
-3. `digest.build_digest` iterates every instrument on the watchlist once, in
-   this order:
+3. `digest.build_digest` iterates every instrument on the watchlist once —
+   `main._current_instruments()`, which is the curated eight during a
+   scripted replay and the user's own live list in live mode — in this
+   order:
    - first-view: if there's no watermark yet, seed one and skip — no card,
      since there's no prior baseline to diff against;
    - degraded: if the instrument is in `degraded`, emit a `DEGRADED_FEED`
@@ -219,8 +239,9 @@ horizontally-scaled write load to justify Postgres, and no operational
 surface (connection pools, a separate DB host) to justify running one. The
 interesting engineering problem is the schema and the invariants it encodes,
 not the storage engine — and unlike an argument made only in prose, this one
-is backed by a running `app/db.py`: `instrument_state` and `watermarks` are
-real tables, and `tests/test_db.py` proves a value written before a
+is backed by a running `app/db.py`: `instrument_state`, `watermarks`,
+`custom_instruments` and `excluded_instruments` are real tables, and
+`tests/test_db.py` proves a value written before a
 connection closes is still there after a fresh one opens.
 
 The invariant math never had to change to make this true. `corpactions.pct_change`,

@@ -34,7 +34,7 @@ _live_next_seq: dict[str, int] = {isin: 1 for isin in LIVE_SYMBOLS}
 
 # A user's personal watchlist management, scoped to live mode only (per the
 # brief's own "create and manage a watchlist" minimum bar). The curated 8
-# in app.feed.INSTRUMENTS is never mutated -- that list is what the three
+# in app.feed.INSTRUMENTS is never mutated -- that list is what the
 # scripted scenarios replay against, and must stay exactly as it is for
 # them to stay deterministic. These three globals sit alongside it instead:
 # additions the user made (keyed by symbol, since there's no ISIN lookup
@@ -413,7 +413,7 @@ def watchlist_remove(isin: str):
                 db.delete_custom_instrument(_db, isin)
         elif any(i.isin == isin for i in INSTRUMENTS):
             # The curated 8 are never deleted from app.feed.INSTRUMENTS — the
-            # three scripted scenarios replay against that exact list. The
+            # scripted scenarios replay against that exact list. The
             # exclusion is recorded alongside it, and only live mode honours it.
             _excluded_isins.add(isin)
             if _db is not None:

@@ -99,10 +99,43 @@ def generate_feed_death(now_epoch: float) -> tuple[list[Tick], list[CorporateAct
     return shifted, []
 
 
+def generate_big_move(now_epoch: float) -> tuple[list[Tick], list[CorporateAction]]:
+    """INFY makes a genuine +3.5% move on its final tick. `normal`'s random
+    walk stays inside ±1% for every instrument, which is correct — most days
+    are quiet, and silence is the product — but it leaves the digest's own
+    MOVE card, and the "I looked" flow that clears it, with no scenario that
+    actually fires them. This is that scenario.
+
+    An ordinary price move, so no `CorporateAction` is emitted: the jump is
+    ~1.04x, nowhere near `corpactions.CLEAN_SPLIT_RATIOS` (2x, 5x, 10x, 20x
+    or their inverses, ±3%), so the unconfirmed-corporate-action detector
+    (I9) correctly leaves it alone and it scores as the plain move it is.
+    """
+    ticks = _walk(now_epoch)
+    mover_isin = "INE009A01021"  # INFY
+    move_pct = 0.035
+
+    own = [t for t in ticks if t.isin == mover_isin]
+    # Sized from the seq-1 price, because that's the tick _load_scenario
+    # seeds the watermark at — so the card reports exactly move_pct instead
+    # of whatever the random walk happened to drift to by its last tick.
+    target = round(own[0].price_raw * (1 + move_pct), 2)
+    final_seq = own[-1].seq
+
+    moved = []
+    for t in ticks:
+        if t.isin == mover_isin and t.seq == final_seq:
+            moved.append(Tick(t.isin, t.seq, t.exchange_ts, target, t.volume))
+        else:
+            moved.append(t)
+    return moved, []
+
+
 SCENARIOS = {
     "normal": generate_normal,
     "split_day": generate_split_day,
     "feed_death": generate_feed_death,
+    "big_move": generate_big_move,
 }
 
 # Real vendor adapter — no key required, but also no uptime or rate-limit

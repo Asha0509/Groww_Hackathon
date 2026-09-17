@@ -76,6 +76,7 @@
     <button id="btn-normal" onclick="setScenario('normal')">Normal</button>
     <button id="btn-split_day" onclick="setScenario('split_day')">Split Day</button>
     <button id="btn-feed_death" onclick="setScenario('feed_death')">Feed Death</button>
+    <button id="btn-big_move" onclick="setScenario('big_move')">Big Move</button>
     <button id="btn-live" onclick="setScenario('live')">Live</button>
     <span id="liveNote" class="section-note" style="margin:0 0 0 0.4rem;" hidden>real prices, polling every 10s</span>
   </div>
@@ -114,6 +115,7 @@
     </table>
     <dl class="legend">
       <div><dt>LIVE</dt><dd>ticks flowing</dd></div>
+      <div><dt>PRE_OPEN</dt><dd>09:00–09:15, open for pre-open only — not stale either</dd></div>
       <div><dt>CLOSED</dt><dd>market shut — price is correct, not stale</dd></div>
       <div><dt>HALTED</dt><dd>circuit hit — frozen is the signal</dd></div>
       <div><dt>DEGRADED</dt><dd>market open, ticks expected, none arriving — our fault</dd></div>
@@ -127,7 +129,7 @@
     <h3>Naive vs. Since</h3>
     <p class="src">Source: <code>docs/RESULTS.md</code>, reproducible with <code>python scripts/compare_naive.py</code></p>
     <ul>
-      <li><strong>split_day</strong> — naive says RELIANCE <strong>-90.0%</strong> (false alarm); Since says RELIANCE <strong>+0.2%</strong> adjusted, 1:10 split detected, no meaningful change.</li>
+      <li><strong>split_day</strong> — naive says RELIANCE <strong>-90.0%</strong> (false alarm); Since says RELIANCE <strong>-0.1%</strong> adjusted, 1:10 split detected, no meaningful change.</li>
       <li><strong>weekend</strong> — naive says RELIANCE <strong>STALE</strong> (last tick 20h ago, past a 30s global timeout); Since says RELIANCE <strong>CLOSED</strong> (market closed, not stale).</li>
     </ul>
 
@@ -148,12 +150,12 @@
 
     <h3>Test suite</h3>
     <ul>
-      <li><code>pytest -q</code> → <strong>40 passed</strong>.</li>
+      <li><code>pytest -q</code> → <strong>42 passed</strong>.</li>
     </ul>
   </section>
 
 <script>
-const SCENARIOS = ['normal', 'split_day', 'feed_death', 'live'];
+const SCENARIOS = ['normal', 'split_day', 'feed_death', 'big_move', 'live'];
 const LIVE_POLL_MS = 10000;
 // The deterministic scenarios all replay against this one fixed instant
 // (app.main.DEMO_NOW), so a row's "as of" can be shown as a real clock time
@@ -190,6 +192,10 @@ function syncLivePolling(active) {
 }
 
 async function setScenario(name) {
+  // A "cleared X" confirmation belongs to the scenario it happened in —
+  // leaving it up across a switch attributes it to the wrong one.
+  clearTimeout(ackConfirmTimer);
+  document.getElementById('ackConfirm').hidden = true;
   const resp = await fetch(`/api/scenario/${name}`, { method: 'POST' });
   if (!resp.ok) {
     alert(`Couldn't switch to "${name}" — the live feed may be unreachable right now. Try again in a moment.`);
