@@ -10,7 +10,7 @@ lies (`app/corpactions`, `app/session`, `app/digest`), plus the
 unconfirmed-corporate-action check, which lives inside `app/corpactions`
 rather than being a fourth subsystem. Nothing here is invented to make the
 document feel more complete — every outcome below corresponds to a real
-branch in the code as of this pass.
+branch in the code.
 
 ---
 
@@ -92,7 +92,7 @@ event's correction.
 - `tests/test_feed.py::test_normal_scenario_is_deterministic`,
   `test_split_day_ticks_ordered_by_seq_per_instrument`, and
   `test_split_day_price_drops_tenfold_at_split_seq` establish the scenario
-  data `detect_clean_ratio_gap` runs against; a direct check in this pass
+  data `detect_clean_ratio_gap` runs against; a direct check
   (not itself a committed test) confirmed zero false positives across every
   tick in both `normal` and `split_day` before the detector was wired in
 

@@ -104,7 +104,7 @@ auth, confirmed against all eight instruments before committing to it.
   publicly reachable endpoint, not a published API product — which is
   exactly why `app/main.live_refresh` treats every poll as something that
   can fail per-symbol (see below), and why the deterministic scenarios,
-  not this feed, are what the graded demo's core walkthrough runs on.
+  not this feed, are what the app's core walkthrough runs on.
 - **One HTTP call per instrument**, sequential, ~5s timeout each — polling
   all eight is a real, measurable cost per refresh, not free. `app/main.py`'s
   `/api/live/refresh` does this fetch *before* acquiring the shared lock
@@ -223,7 +223,7 @@ shared as N grows — not a production capacity number.
 
 ## Why a modular monolith, not microservices
 
-One process, one thing to keep up during a live Q&A. The seams
+One process, one thing to keep running and reason about. The seams
 (`feed` / `ingest` / `corpactions` / `session` / `digest`) are clean package
 boundaries already — splitting them into services later is an operational
 change, not a rewrite. Splitting *now*, for a few thousand instruments and a

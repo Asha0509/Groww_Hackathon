@@ -13,7 +13,7 @@ hackathon.
 4. [Watching it work: the three lies, live](#watching-it-work-the-three-lies-live)
 5. [Running it](#running-it)
 6. [What's honestly not built](#whats-honestly-not-built)
-7. [Quick file map, for defending this live](#quick-file-map-for-defending-this-live)
+7. [Quick file map](#quick-file-map)
 
 ---
 
@@ -101,7 +101,7 @@ naturally a live-market idea, so that's where it lives.
 One disclosed simplification: a custom addition is keyed by its ticker
 symbol, not a real ISIN, because there's no ISIN lookup available for an
 arbitrary symbol typed in by a user. The curated 8 stay properly ISIN-keyed
-throughout. Worth saying out loud if asked, not something to be caught on.
+throughout.
 
 ### "View latest market information"
 
@@ -359,7 +359,7 @@ remove instruments from your own watchlist.
 
 ## What's honestly not built
 
-The full, honest list, including which gaps are a time constraint and
+The full, honest list, including which gaps are simply not built yet and
 which are a deliberate choice, is [`docs/BUGS.md`](docs/BUGS.md). The ones
 most worth knowing going in:
 
@@ -380,9 +380,9 @@ most worth knowing going in:
 
 ---
 
-## Quick file map, for defending this live
+## Quick file map
 
-| If asked about | Look at |
+| Topic | Look at |
 |---|---|
 | The core thesis, why a diff and not a dashboard | [`README.md`](#the-problem-statement) top, [`docs/CLAUDE.md`](docs/CLAUDE.md) |
 | The personal baseline / watermark | [`app/digest/__init__.py`](app/digest/__init__.py) |
@@ -397,7 +397,7 @@ most worth knowing going in:
 | The fan-out / scaling claim and its real numbers | [`scripts/benchmark_fanout.py`](scripts/benchmark_fanout.py), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | The concurrency lock and its stress test | [`app/main.py`](app/main.py) `_lock`, [`tests/test_main.py`](tests/test_main.py) |
 | Why a monolith, why SQLite | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Every known gap, and whether it's a time cut or a choice | [`docs/BUGS.md`](docs/BUGS.md) |
+| Every known gap, and whether it's not built yet or a deliberate choice | [`docs/BUGS.md`](docs/BUGS.md) |
 | Exact fields, every outcome, the test that proves each one | [`docs/LLD.md`](docs/LLD.md) |
 
 AI tools were used for scaffolding, wording, and iteration speed. The

@@ -99,7 +99,7 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 | **Product & Problem Interpretation** — beyond the obvious brief | Reframed display → diff; identified that the baseline, not the UI, is the problem | Pitch, README opening, demo beat 1 |
 | **Edge Cases & Resilience** — failures, races, integrity, unreliable deps | Corporate actions, 5-state session model, per-symbol liveness, out-of-order ticks, late CA feed, two-device race | `make demo-tests` red/green table |
 | **Code Quality & Simplicity** — no over-engineering | Modular monolith, SQLite, no broker, no LLM, four scorers | Repo structure, `Decisions & Trade-offs` |
-| **Originality & Thoughtfulness** — independent choices | The three-lies framing; deliberate non-goals; "fail toward silence, not toward a lie" | README, Q&A |
+| **Originality & Thoughtfulness** — independent choices | The three-lies framing; deliberate non-goals; "fail toward silence, not toward a lie" | README |
 
 ## 6. Non-functional
 
@@ -113,8 +113,8 @@ Clean-ratio gap (1:2, 1:5, 1:10, 1:20 within tolerance) at open, no volume spike
 |---|---|
 | Only the **first 1,000** of 2,942 submissions are evaluated | Ship a thin working version at hour 4.5 and submit it. Improve after. |
 | Scope creep into charts/news | P2 list is binding. New ideas go to `docs/BUGS.md`, not the repo |
-| Demo breaks live | Scenarios are seeded and deterministic; rehearse the run beforehand |
-| Can't defend it in Q&A | Every invariant in `docs/CLAUDE.md` is written as a "why" answer. Read them aloud. |
+| Demo breaks live | Scenarios are seeded and deterministic, so a run is repeatable |
+| Can't justify a design choice | Every invariant in `docs/CLAUDE.md` is written as a "why" answer |
 
 ## 8. Submission checklist
 

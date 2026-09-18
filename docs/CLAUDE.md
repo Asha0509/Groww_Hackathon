@@ -30,7 +30,6 @@ and stays silent about everything else.
 
 Built for a 72-hour solo engineering challenge (Groww). Judged on: engineering depth,
 problem interpretation, edge cases & resilience, code quality & simplicity, originality.
-Judged in a live Q&A where the author must defend every choice.
 
 ## 3. The three lies (the whole product)
 
@@ -55,7 +54,7 @@ There are **four** states, and liveness is judged **per symbol**, not globally.
 
 ## 4. Hard invariants
 
-These are non-negotiable. Every one of them is a Q&A answer. Violating one is a bug even if tests pass.
+These are non-negotiable. Each has its own rationale below. Violating one is a bug even if tests pass.
 
 | # | Invariant | Why (the "why" answer) |
 |---|-----------|------------------------|
@@ -95,8 +94,8 @@ FastAPI app (single process)
 Python 3.11 · FastAPI · SQLAlchemy · SQLite (WAL) · pytest ·
 React + Vite + TypeScript · plain CSS (no UI framework) · single Dockerfile.
 
-**Why SQLite:** single-writer is fine at this scale, zero ops, the schema is the interesting part.
-Say this out loud in Q&A; it reads as judgement, not laziness.
+**Why SQLite:** single-writer is fine at this scale, zero ops, the schema is the interesting part —
+that reads as judgement, not laziness.
 
 ---
 
