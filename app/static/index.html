@@ -118,6 +118,9 @@
 
 <script>
 const SCENARIOS = ['normal', 'split_day', 'feed_death', 'big_move', 'live'];
+// Also app.main.LIVE_POLL_INTERVAL_MS, which judges how long a live
+// instrument may stay quiet before its feed counts as degraded. The two are
+// the same cadence seen from either end, so a test holds them equal.
 const LIVE_POLL_MS = 10000;
 // The deterministic scenarios all replay against this one fixed instant
 // (app.main.DEMO_NOW), so a row's "as of" can be shown as a real clock time
@@ -143,12 +146,25 @@ function syncScenarioButtons(active) {
 // page load landing on a server that's already in live mode.
 function syncLivePolling(active) {
   if (active === 'live' && !livePollTimer) {
-    livePollTimer = setInterval(async () => {
-      await fetch('/api/live/refresh', { method: 'POST' });
-      await refresh();
-    }, LIVE_POLL_MS);
+    // Rescheduled after each round finishes rather than run on a fixed
+    // interval: a refresh makes up to eight sequential vendor calls, each with
+    // its own timeout, so a slow round can outlast LIVE_POLL_MS. On an
+    // interval those rounds overlap and pile more requests onto a vendor
+    // that's already struggling, which is the worst moment to do it.
+    const poll = async () => {
+      try {
+        await fetch('/api/live/refresh', { method: 'POST' });
+        await refresh();
+      } catch {
+        // A poll that fails is just a poll that fails. The rows keep showing
+        // the last price that did arrive, and the next round is already queued.
+      } finally {
+        if (livePollTimer) livePollTimer = setTimeout(poll, LIVE_POLL_MS);
+      }
+    };
+    livePollTimer = setTimeout(poll, LIVE_POLL_MS);
   } else if (active !== 'live' && livePollTimer) {
-    clearInterval(livePollTimer);
+    clearTimeout(livePollTimer);
     livePollTimer = null;
   }
 }

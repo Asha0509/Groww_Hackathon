@@ -3,7 +3,9 @@ concurrency lock, and basic endpoint error handling. Previously undisclosed
 gap in coverage per docs/BUGS.md; every invariant-bearing module had unit
 tests, but the HTTP layer that ties them together didn't.
 """
+import re
 import threading
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -282,5 +284,60 @@ def test_big_move_leaves_every_other_instrument_silent():
     client.post("/api/scenario/big_move")
     movers = {c["symbol"] for c in client.get("/api/digest").json()["cards"]}
     assert movers == {"INFY"}
+
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_the_ui_polls_at_the_cadence_liveness_is_judged_against():
+    """app.main.LIVE_POLL_INTERVAL_MS sets how long a live instrument may stay
+    quiet before its feed counts as degraded; static/index.html sets how often
+    it is actually asked. Let those drift apart and every live row starts
+    reporting a degraded feed for no reason except the gap between two numbers
+    that were supposed to be the same one.
+    """
+    html = (Path(m.__file__).parent / "static" / "index.html").read_text()
+    declared = re.search(r"const LIVE_POLL_MS = (\d+);", html)
+    assert declared, "LIVE_POLL_MS is no longer declared where this test looks for it"
+    assert int(declared.group(1)) == m.LIVE_POLL_INTERVAL_MS
+
+
+def test_re_adding_a_removed_instrument_reports_no_move(monkeypatch):
+    """Removing an instrument takes its baseline with it. Left behind, the old
+    watermark outranks the seq=1 reseed the instrument comes back with, and the
+    first digest after a re-add reports the distance between two prices the
+    user was never watching.
+    """
+    _enter_live(monkeypatch)
+    price = {"v": 100.0}
+    monkeypatch.setattr(m, "fetch_live_quote", lambda _s: (price["v"], 1757222400.0, 1234))
+
+    client.post("/api/watchlist/add", params={"symbol": "TCS"})
+    client.post("/api/watchlist/remove", params={"isin": "TCS"})
+    price["v"] = 150.0
+    client.post("/api/watchlist/add", params={"symbol": "TCS"})
+
+    row = next(r for r in client.get("/api/watchlist").json()["watchlist"] if r["isin"] == "TCS")
+    assert row["last_seen_price_raw"] == 150.0  # where it is now, not where it was two watchlists ago
+    assert [c for c in client.get("/api/digest").json()["cards"] if c["isin"] == "TCS"] == []
+
+    client.post("/api/watchlist/remove", params={"isin": "TCS"})
+    client.post("/api/scenario/normal")  # leave state clean for other tests
+
+
+def test_live_volume_is_the_days_total_not_a_sum_of_polls(monkeypatch):
+    """Yahoo reports regularMarketVolume, the running total for the day. Poll
+    it six times in a minute and a feed that adds each reading would have
+    Reliance trading six days' worth of shares before lunch.
+    """
+    _enter_live(monkeypatch)
+    day_volume = 5_000_000
+    monkeypatch.setattr(m, "fetch_live_ticks", lambda next_seq, symbols=None: (
+        {isin: m.Tick(isin, next_seq[isin], 1757222400.0, 100.0, day_volume) for isin in (symbols or {})},
+        [],
+    ))
+
+    for _ in range(3):
+        client.post("/api/live/refresh")
+    assert m._states["INE002A01018"].volume_today == day_volume
 
     client.post("/api/scenario/normal")  # leave state clean for other tests

@@ -62,13 +62,15 @@ event's correction.
   `corpactions` ever sees it (`tick.seq <= state.last_seq` is rejected,
   same treatment as a genuinely stale tick). A retried, at-least-once
   redelivery of the same tick is a no-op, not a double-application.
-- **A malformed tick** (negative, zero, or NaN `price_raw`) is not
-  rejected by anything in this codebase — `apply_tick` only checks
-  ordering. `adjusted_baseline`/`pct_change` guard division by zero
-  (`cum_factor_then == 0` or `baseline == 0` short-circuit to a safe
-  default), so this doesn't crash, but a negative price would silently
-  produce a nonsensical percentage in a MOVE card. Named, not fixed — see
-  `docs/BUGS.md` ("No tick sanity validation").
+- **A malformed tick** (negative, zero, or NaN `price_raw`) never reaches
+  this module. `app.ingest.apply_tick` rejects it alongside an out-of-order
+  one, because nothing downstream would: `adjusted_baseline`/`pct_change`
+  guard division by zero (`cum_factor_then == 0` or `baseline == 0`
+  short-circuit to a safe default), so a negative price wouldn't crash, it
+  would arrive in front of a user as a confident percentage on a MOVE card.
+  A rejected tick leaves `last_seq` untouched, so the next good tick for
+  that instrument still applies. `tests/test_ingest.py` pins all three
+  shapes and the recovery.
 - **A corporate action whose ratio doesn't match any clean pattern**
   (a buyback, an odd-ratio rights issue, a data glitch that isn't a round
   number) — `detect_clean_ratio_gap` returns `None`, and the tick is
@@ -100,7 +102,7 @@ event's correction.
 
 - **Volume cross-checking.** A real split usually has a volume signature; this module doesn't look at volume at all. Owned by: `docs/BUGS.md`, "Volume cross-check for the unconfirmed-CA detector."
 - **Non-clean-ratio anomalies** (buybacks, odd rights-issue ratios). Owned by: `docs/BUGS.md`, same entry, "Unconfirmed-corporate-action detection" closed-this-pass note.
-- **Tick sanity validation.** Not this module's job even conceptually — it trusts `app.ingest` to hand it a tick worth reasoning about at all. Owned by: `docs/BUGS.md`, "No tick sanity validation."
+- **Tick sanity validation.** Not this module's job even conceptually — it trusts `app.ingest` to hand it a tick worth reasoning about at all, which `apply_tick` now enforces rather than assumes.
 - **Symbol-to-ISIN resolution / ticker rename history (I1).** This module and everything downstream of it already keys everything by ISIN, which is the invariant that matters, but there's no `symbol_aliases` table. Owned by: `docs/BUGS.md`, "A ticker-rename table doesn't exist."
 
 ---
@@ -139,6 +141,17 @@ liquidity tier — a liquid name silent for 12 seconds (2,000ms × 6) is
 `DEGRADED`; an illiquid one gets 24 minutes (240,000ms × 6) before the same
 judgment applies. One global number would either flag illiquid names
 constantly or miss a real outage on a liquid one.
+
+Those tiers describe how often an instrument trades. How often this build
+gets to *see* it trade is a second, independent limit, so
+`instrument_session_state` takes an `observed_every_ms` and judges against
+`max(tier, observed_every_ms)`. A scenario replays every tick it generates
+and passes nothing, leaving the tier thresholds exactly as above. Live mode
+reads a snapshot endpoint on a 10-second timer
+(`app.main.LIVE_POLL_INTERVAL_MS`), so even a name trading every two seconds
+can only appear once per poll, and holding it to a 12-second threshold would
+report a degraded feed for a cadence this build chose itself. A stopped feed
+is still named: past 10,000ms × 6, live rows go `DEGRADED` as before.
 
 ### Every distinct outcome
 
@@ -180,18 +193,21 @@ constantly or miss a real outage on a liquid one.
 - `tests/test_session.py::test_halted_beats_everything` — `HALTED` precedence
 - `tests/test_session.py::test_illiquid_sparse_ticks_are_not_degraded` — `LIVE` for an illiquid name within its own threshold
 - `tests/test_session.py::test_liquid_instrument_silent_10s_is_degraded` — `DEGRADED` for a liquid name past its threshold
+- `tests/test_session.py::test_a_polled_source_is_judged_on_its_own_cadence` — the same 15s silence read as `DEGRADED` from a replay and `LIVE` from a 10s poll
+- `tests/test_session.py::test_a_polled_instrument_can_still_go_degraded` — a genuinely stopped feed is still named, cadence allowance or not
+- `tests/test_main.py::test_the_ui_polls_at_the_cadence_liveness_is_judged_against` — the page's `LIVE_POLL_MS` and `app.main.LIVE_POLL_INTERVAL_MS` held equal
 - `tests/test_main.py::test_feed_death_scenario_flags_the_dead_instrument_degraded_not_move` — `DEGRADED` end-to-end through the API, alongside seven `LIVE` instruments in the same response
 
 ### Non-goals
 
 - **Partial or flapping degradation.** A feed that's late but not fully
   stopped, or one that degrades and recovers within a session, isn't
-  modeled by any current scenario. Owned by: `docs/BUGS.md`,
-  `feed_death`'s closed-this-pass note, "what this doesn't cover."
+  modeled by any current scenario. Owned by: `docs/BUGS.md`, "Only one
+  scenario exercises `DEGRADED`."
 - **A real market calendar** (holidays, special sessions). `calendar_state`
   only knows weekday-vs-weekend and a fixed daily window — a market
-  holiday on a Tuesday would be reported `LIVE`. Not currently disclosed
-  elsewhere; naming it here.
+  holiday on a Tuesday would be reported `LIVE`. Owned by: `docs/BUGS.md`,
+  "The market calendar is weekday-vs-weekend only."
 
 ---
 
@@ -284,7 +300,9 @@ at all" (degraded) is resolved before "is this price shape suspicious"
 - `tests/test_digest.py::test_watermark_never_rewinds` — the `WatermarkStore.ack` monotonic guard directly
 - `tests/test_corpactions.py::test_unconfirmed_clean_ratio_gap_is_never_reported_as_a_price_move` — `unverified_corporate_action`
 - `tests/test_main.py::test_feed_death_scenario_flags_the_dead_instrument_degraded_not_move` — `degraded_feed`
-- `watermark_seeded_first_view` is exercised implicitly by every scenario load (every instrument's first tick goes through this path in `app.main._load_scenario`) but has no isolated unit test naming it directly — worth adding, not currently there.
+- `tests/test_digest.py::test_first_view_seeds_a_baseline_and_says_nothing` — `watermark_seeded_first_view` on its own, rather than only implicitly through every scenario load
+- `tests/test_digest.py::test_dropping_a_watermark_lets_a_re_added_instrument_start_clean` — a dropped baseline leaves nothing behind for a re-added instrument to be diffed against
+- `tests/test_main.py::test_re_adding_a_removed_instrument_reports_no_move` — the same guarantee through the API, across a real remove and re-add
 
 ### Non-goals
 

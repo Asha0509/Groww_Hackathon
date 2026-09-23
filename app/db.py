@@ -120,6 +120,11 @@ def load_watermarks(conn: sqlite3.Connection) -> dict[tuple[str, str], Watermark
     return {(user_id, isin): Watermark(user_id, isin, seq, price, factor) for user_id, isin, seq, price, factor in rows}
 
 
+def delete_watermark(conn: sqlite3.Connection, user_id: str, isin: str) -> None:
+    conn.execute("DELETE FROM watermarks WHERE user_id = ? AND isin = ?", (user_id, isin))
+    conn.commit()
+
+
 def save_custom_instrument(conn: sqlite3.Connection, inst: Instrument, yahoo_symbol: str) -> None:
     conn.execute(
         """

@@ -22,6 +22,13 @@ IST = ZoneInfo("Asia/Kolkata")
 DEMO_NOW = dt.datetime(2026, 9, 7, 11, 0, 0)
 DEMO_NOW_EPOCH = DEMO_NOW.timestamp()
 
+# The cadence the UI polls /api/live/refresh on (LIVE_POLL_MS in
+# static/index.html, held to this value by a test). Live mode reads a snapshot
+# endpoint on a timer, so this is also the soonest it can possibly learn that a
+# price moved — session liveness has to be judged against it rather than
+# against how often the instrument really trades.
+LIVE_POLL_INTERVAL_MS = 10_000
+
 DB_PATH = os.environ.get("SINCE_DB_PATH", "data/since.db")
 _db = None  # set by _startup(); a sqlite3.Connection in WAL mode (app.db)
 
@@ -76,12 +83,16 @@ def _apply_one_tick(
     actions: list[CorporateAction],
     ca_notes: dict[str, dict],
     unverified: dict[str, str],
+    cumulative_volume: bool = False,
 ) -> None:
     """The one piece of ingest logic every tick goes through, whether it came
     from a deterministic scenario replay or a live vendor poll: confirmed
     corporate actions adjust cum_factor (I3); an unconfirmed clean-ratio gap
     is flagged, never silently scored (I9); ordering is enforced last, by
     apply_tick itself (I4). Mutates st/ca_notes/unverified in place.
+
+    cumulative_volume says the tick's volume is a running total rather than
+    the size of one trade, which is how a snapshot vendor reports it.
     """
     confirmed = [a for a in actions if a.isin == t.isin and a.ex_seq == t.seq]
     if confirmed:
@@ -92,7 +103,15 @@ def _apply_one_tick(
         gap_ratio = detect_clean_ratio_gap(st.ltp_raw, t.price_raw)
         if gap_ratio is not None:
             unverified[t.isin] = _unverified_note_text(gap_ratio)
-    apply_tick(st, t)
+    applied = apply_tick(st, t)
+    if applied and cumulative_volume:
+        # Yahoo's regularMarketVolume is the day's running total, not one
+        # trade's size. apply_tick adds, which is right for a stream of
+        # individual ticks and wrong for a snapshot: re-reading the same
+        # unchanged total every 10 seconds would otherwise pile a whole day's
+        # volume onto volume_today per poll. Take the vendor's total as the
+        # total it is.
+        st.volume_today = t.volume
     for a in confirmed:
         apply_corporate_action(st, a)
 
@@ -113,6 +132,17 @@ def _now() -> tuple[dt.datetime, float]:
         now = dt.datetime.now(IST)
         return now, now.timestamp()
     return DEMO_NOW, DEMO_NOW_EPOCH
+
+
+def _observed_every_ms() -> int:
+    """How often the current source lets us see an instrument. A scenario
+    replays every tick it generates, so the answer is "as often as it ticks"
+    and session liveness judges the instrument on its own tier alone. Live
+    mode reads a snapshot on a timer, so a liquid name that genuinely trades
+    every couple of seconds still only surfaces once per poll, and calling
+    that a degraded feed would blame the vendor for our own cadence.
+    """
+    return LIVE_POLL_INTERVAL_MS if _scenario == "live" else 0
 
 
 def _live_instruments() -> list[Instrument]:
@@ -205,7 +235,7 @@ def _load_live_baseline() -> None:
     unverified: dict[str, str] = {}
     for isin, t in ticks.items():
         st = states[isin]
-        _apply_one_tick(st, t, [], ca_notes, unverified)  # no CA feed exists for live data
+        _apply_one_tick(st, t, [], ca_notes, unverified, cumulative_volume=True)  # no CA feed exists for live data
         watermarks.ack(USER, isin, seq=1, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
 
     with _lock:
@@ -248,7 +278,7 @@ def live_refresh():
             st = _states.get(isin)
             if st is None:
                 continue  # removed from the watchlist while this poll was in flight
-            _apply_one_tick(st, t, [], _ca_notes, _unverified)
+            _apply_one_tick(st, t, [], _ca_notes, _unverified, cumulative_volume=True)
             _live_next_seq[isin] = t.seq + 1
             if _db is not None:
                 db.save_instrument_state(_db, st)
@@ -294,7 +324,7 @@ def watchlist():
         out = []
         for inst in _current_instruments():
             st = _states[inst.isin]
-            state = instrument_session_state(now, now_epoch, inst, st)
+            state = instrument_session_state(now, now_epoch, inst, st, _observed_every_ms())
             note = _ca_notes.get(inst.isin)
             wm = _watermarks.get(USER, inst.isin)
             out.append(
@@ -324,7 +354,7 @@ def _degraded_notes() -> dict[str, str]:
     notes = {}
     for inst in _current_instruments():
         st = _states[inst.isin]
-        state = instrument_session_state(now, now_epoch, inst, st)
+        state = instrument_session_state(now, now_epoch, inst, st, _observed_every_ms())
         if state == SessionState.DEGRADED:
             age_s = round(now_epoch - st.last_exchange_ts)
             notes[inst.isin] = f"feed has gone quiet — no new ticks in {age_s}s. The price shown is the last one received, not a current price."
@@ -391,7 +421,9 @@ def watchlist_add(symbol: str):
         _custom_live_symbols[inst.isin] = yahoo_symbol
         st = _states.setdefault(inst.isin, InstrumentState(isin=inst.isin))
         seq = st.last_seq + 1
-        _apply_one_tick(st, Tick(inst.isin, seq, exchange_ts, round(price, 2), volume), [], _ca_notes, _unverified)
+        _apply_one_tick(
+            st, Tick(inst.isin, seq, exchange_ts, round(price, 2), volume), [], _ca_notes, _unverified, cumulative_volume=True
+        )
         _live_next_seq[inst.isin] = st.last_seq + 1
         wm = _watermarks.ack(USER, inst.isin, seq=st.last_seq, price_raw=st.ltp_raw, cum_factor=st.cum_factor)
         if _db is not None:
@@ -409,8 +441,16 @@ def watchlist_remove(isin: str):
         if isin in _custom_instruments:
             del _custom_instruments[isin]
             _custom_live_symbols.pop(isin, None)
+            # A custom addition is gone entirely once removed, so its baseline
+            # goes with it. Keeping the watermark would outlive the instrument
+            # it describes: adding the same symbol back starts a fresh state at
+            # seq 1, ack's monotonic guard would refuse to move a watermark
+            # already sitting at or above that, and the new row would report a
+            # move against a price from a watchlist that no longer exists.
+            _watermarks.drop(USER, isin)
             if _db is not None:
                 db.delete_custom_instrument(_db, isin)
+                db.delete_watermark(_db, USER, isin)
         elif any(i.isin == isin for i in INSTRUMENTS):
             # The curated 8 are never deleted from app.feed.INSTRUMENTS — the
             # scripted scenarios replay against that exact list. The

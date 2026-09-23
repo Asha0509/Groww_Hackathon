@@ -37,6 +37,17 @@ class WatermarkStore:
         self._store[(user_id, isin)] = wm
         return wm
 
+    def drop(self, user_id: str, isin: str) -> None:
+        """Forget this user's baseline for an instrument that no longer exists
+        for them. The monotonic guard in ack is about a stale write losing to a
+        newer one, not about a baseline outliving the thing it measured: an
+        instrument dropped from a watchlist and added again starts from seq 1
+        with no history, and a surviving watermark would sit above that and
+        refuse to move, leaving a fresh row diffed against a price from a
+        watchlist the user already deleted.
+        """
+        self._store.pop((user_id, isin), None)
+
 
 def build_digest(
     user_id: str,

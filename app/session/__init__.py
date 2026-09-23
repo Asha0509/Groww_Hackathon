@@ -26,6 +26,11 @@ MARKET_OPEN_SEC = 9 * 3600 + 15 * 60
 MARKET_CLOSE_SEC = 15 * 3600 + 30 * 60
 
 # INVARIANT I6: expected tick interval is per liquidity tier, not a global timeout.
+# This is how often the instrument itself trades. How often we get to *see* it
+# trade is a separate question: a caller reading a snapshot endpoint on a timer
+# cannot learn about a price more often than it polls, however liquid the name
+# is, so it passes that cadence as observed_every_ms and the two are taken
+# together. A replay observes every tick there is and passes nothing.
 EXPECTED_INTERVAL_MS = {"liquid": 2_000, "illiquid": 240_000}
 DEGRADED_MULTIPLIER = 6
 
@@ -43,7 +48,13 @@ def calendar_state(now: dt.datetime) -> SessionState:
     return SessionState.CLOSED
 
 
-def instrument_session_state(now: dt.datetime, now_epoch: float, instrument: Instrument, state: InstrumentState) -> SessionState:
+def instrument_session_state(
+    now: dt.datetime,
+    now_epoch: float,
+    instrument: Instrument,
+    state: InstrumentState,
+    observed_every_ms: int = 0,
+) -> SessionState:
     if state.halted:
         # INVARIANT I5: HALTED is not stale — it is not our fault.
         return SessionState.HALTED
@@ -53,9 +64,11 @@ def instrument_session_state(now: dt.datetime, now_epoch: float, instrument: Ins
         # INVARIANT I5: CLOSED/PRE_OPEN are never reported as stale.
         return base
 
-    expected_ms = EXPECTED_INTERVAL_MS.get(instrument.liquidity_tier, EXPECTED_INTERVAL_MS["liquid"])
+    tier_ms = EXPECTED_INTERVAL_MS.get(instrument.liquidity_tier, EXPECTED_INTERVAL_MS["liquid"])
+    expected_ms = max(tier_ms, observed_every_ms)
     age_ms = (now_epoch - state.last_exchange_ts) * 1000
-    # INVARIANT I6: liveness judged against this instrument's own expected interval.
+    # INVARIANT I6: liveness judged against this instrument's own expected
+    # interval, floored by how often the caller can see it at all.
     if age_ms > expected_ms * DEGRADED_MULTIPLIER:
         return SessionState.DEGRADED
     return SessionState.LIVE
